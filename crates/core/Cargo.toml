@@ -1,0 +1,16 @@
+[package]
+name = "cairn-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+blake3 = "1.8.5"
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.19"
+time = "0.3.55"
+
+[dev-dependencies]
+serde_json = "1.0.151"

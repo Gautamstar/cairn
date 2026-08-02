@@ -1,0 +1,23 @@
+[workspace]
+members = ["crates/core", "crates/ingest", "crates/query", "crates/rollup"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/Gautamstar/cairn"
+
+# Lambda bills on wall-clock duration, and a cold start is charged to whichever
+# visitor happens to arrive first. The release profile optimizes for a small,
+# fast binary on both counts.
+#
+# Deliberately NOT setting `panic = "abort"`. It would shave a little size, but a
+# panic would tear down the whole execution environment instead of failing a
+# single invocation, throwing away a warm container and inflicting a cold start
+# on the next visitor.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true

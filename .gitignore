@@ -1,0 +1,35 @@
+# Rust
+/target
+**/*.rs.bk
+
+# cargo-lambda build output
+/.cargo-lambda
+/lambda
+
+# Terraform: state files can carry resource metadata, .terraform is a local cache
+infra/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.auto.tfvars
+terraform.tfvars
+
+# Never commit these. The visitor-ID secret is the one value that makes the
+# hashing meaningful: if it leaks, stored visitor IDs become reversible by
+# brute-forcing the (very small) IPv4 space.
+.env
+.env.*
+!.env.example
+*.pem
+
+# Node (tracker build + dashboard)
+node_modules/
+dist/
+.vite/
+
+# Local Claude Code config
+.claude/
+
+# OS
+Thumbs.db
+.DS_Store

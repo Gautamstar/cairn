@@ -1,0 +1,7 @@
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+# Lambda's arm64 runtime. Graviton is around 20% cheaper per GB-second than
+# x86_64 and Rust cross-compiles to it cleanly, so there is no reason to pay
+# for x86 here.
+targets = ["aarch64-unknown-linux-gnu"]

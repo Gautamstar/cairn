@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Cairn tracker harness</title>
+  <style>
+    body { font: 14px ui-monospace, monospace; margin: 2rem; background: #080807; color: #e8e8e3; }
+    h1 { font-size: 1rem; letter-spacing: .04em; text-transform: uppercase; color: #8a8a83; }
+    pre { background: #131211; border: 1px solid rgba(232,232,227,.12); padding: 1rem; overflow-x: auto; }
+    button { font: inherit; background: #146ef5; color: #fff; border: 0; padding: .5rem .9rem; margin-right: .5rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Cairn tracker harness</h1>
+
+  <p>
+    Local-only test page. It replaces <code>navigator.sendBeacon</code> with a
+    recorder so the tracker can be driven through route changes without a
+    deployed endpoint, then prints every payload it would have sent.
+  </p>
+
+  <p>
+    <button id="nav-about">pushState /about</button>
+    <button id="nav-again">pushState /about again</button>
+    <button id="nav-blog">pushState /blog</button>
+    <button id="nav-back">history.back()</button>
+    <button id="custom">cairn('signup')</button>
+  </p>
+
+  <pre id="out">0 beacon(s)</pre>
+
+  <!--
+    Must run before the tracker so the recorder is in place when the first
+    pageview fires. The tracker below is deferred, so this inline script wins.
+  -->
+  <script>
+    window.__beacons = [];
+
+    navigator.sendBeacon = function (url, blob) {
+      blob.text().then(function (text) {
+        window.__beacons.push({ url: url, body: JSON.parse(text) });
+        render();
+      });
+      return true;
+    };
+
+    function render() {
+      document.getElementById('out').textContent =
+        window.__beacons.length + ' beacon(s)\n\n' +
+        JSON.stringify(window.__beacons, null, 2);
+    }
+
+    window.addEventListener('DOMContentLoaded', function () {
+      document.getElementById('nav-about').onclick = function () { history.pushState({}, '', '/about'); };
+      document.getElementById('nav-again').onclick = function () { history.pushState({}, '', '/about'); };
+      document.getElementById('nav-blog').onclick = function () { history.pushState({}, '', '/blog'); };
+      document.getElementById('nav-back').onclick = function () { history.back(); };
+      document.getElementById('custom').onclick = function () { window.cairn('signup'); };
+    });
+  </script>
+
+  <script defer src="./cairn.js"
+          data-site="harness.test"
+          data-api="/e"
+          data-track-localhost></script>
+</body>
+</html>
