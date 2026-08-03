@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Cairn</title>
+
+<!--
+  No webfont is loaded, and that is a deliberate choice rather than an
+  oversight. Pulling Space Grotesk from Google Fonts would mean every visitor to
+  a privacy-analytics dashboard silently makes a request to Google carrying
+  their IP and referrer. The font stack below uses the faces if they happen to
+  be installed and falls back to system faces otherwise. A tool that refuses to
+  store your IP should not hand it to someone else on the way in.
+-->
+<style>
+  :root {
+    --plane:    #080807;
+    --surface:  #131211;
+    --raised:   #181715;
+    --ink:      #e8e8e3;
+    --ink-2:    #a8a8a1;
+    --muted:    #898781;
+    --hairline: rgba(232, 232, 227, 0.12);
+    --grid:     rgba(232, 232, 227, 0.07);
+
+    /* Validated against this surface for the dark-mode categorical pair:
+       lightness band, chroma floor, CVD separation (worst adjacent ΔE 26.8
+       protan), normal-vision floor, and 3:1 contrast. Do not hand-tune these
+       without re-running the check. */
+    --visitors: #3987e5;
+    --views:    #d95926;
+
+    --sans: "Space Grotesk", system-ui, -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Menlo, monospace;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 2rem 1.5rem 4rem;
+    background: var(--plane);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  /* ---------- header ---------- */
+
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 1rem 1.5rem;
+    padding-bottom: 1.25rem;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .tagline {
+    margin: 0;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.02em;
+  }
+
+  .controls { margin-left: auto; display: flex; gap: 1rem; align-items: center; }
+
+  select, .range button {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--ink-2);
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    padding: 0.35rem 0.6rem;
+    cursor: pointer;
+    transition: color 0.15s var(--ease), border-color 0.15s var(--ease);
+  }
+
+  select:hover, .range button:hover { color: var(--ink); border-color: rgba(232,232,227,0.28); }
+
+  .range { display: flex; gap: 0.3rem; }
+  .range button[aria-pressed="true"] {
+    color: var(--plane);
+    background: var(--ink);
+    border-color: var(--ink);
+  }
+
+  /* ---------- stat tiles ---------- */
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1px;
+    margin: 1.75rem 0;
+    background: var(--hairline);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .stat { background: var(--surface); padding: 1.1rem 1.25rem; }
+
+  .stat-label {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .stat-value {
+    font-size: 2rem;
+    font-weight: 500;
+    line-height: 1.15;
+    margin-top: 0.35rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stat-note { font-size: 0.72rem; color: var(--muted); margin-top: 0.1rem; }
+
+  .live-dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--visitors);
+    margin-right: 0.4rem;
+    vertical-align: 0.08em;
+  }
+  .live-dot.idle { background: var(--muted); }
+
+  /* ---------- cards ---------- */
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    padding: 1.25rem;
+  }
+
+  .card-head {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  h2 {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    font-weight: 500;
+  }
+
+  /* Legend is always present for two series, so identity is never carried by
+     colour alone. */
+  .legend { display: flex; gap: 0.9rem; margin-left: auto; align-items: center; }
+  .legend span { display: flex; align-items: center; gap: 0.35rem; font-family: var(--mono); font-size: 0.68rem; color: var(--ink-2); }
+  .swatch { width: 9px; height: 9px; border-radius: 2px; }
+
+  .toggle {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--muted);
+    background: none;
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    padding: 0.2rem 0.45rem;
+    cursor: pointer;
+  }
+  .toggle:hover { color: var(--ink); }
+
+  /* ---------- chart ---------- */
+
+  .chart-wrap { position: relative; }
+
+  /* No `overflow: visible` here. The chart is drawn entirely inside its
+     viewBox, and letting content escape only means axis labels spilling past
+     the card edge once the viewport is narrow. */
+  svg { display: block; width: 100%; height: auto; }
+
+  /* The one element allowed to scroll sideways, so a 30-day range on a phone
+     stays legible instead of squeezing bars to nothing or pushing the page
+     wider than the screen. */
+  #chart-table { overflow-x: auto; }
+
+  .grid-line { stroke: var(--grid); stroke-width: 1; }
+  .axis-text { fill: var(--muted); font-family: var(--mono); font-size: 9px; }
+  .hit { fill: transparent; cursor: crosshair; }
+  .hit:hover ~ .band, .band.active { fill: rgba(232, 232, 227, 0.04); }
+
+  .tip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--raised);
+    border: 1px solid var(--hairline);
+    border-radius: 5px;
+    padding: 0.5rem 0.65rem;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.12s var(--ease);
+    z-index: 5;
+  }
+  .tip.on { opacity: 1; }
+  .tip .k { color: var(--muted); }
+  .tip .row { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.2rem; }
+
+  /* ---------- table view ---------- */
+
+  table { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: 0.72rem; }
+  th, td { text-align: right; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--hairline); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; }
+  td { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+  /* ---------- ranked panels ---------- */
+
+  .panels {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .rows { display: flex; flex-direction: column; gap: 1px; }
+
+  .row {
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.4rem 0.55rem;
+    font-size: 0.82rem;
+    overflow: hidden;
+    border-radius: 3px;
+  }
+
+  /* A single measure per row, so this is magnitude, not identity: one hue,
+     no categorical palette involved. */
+  .row-bar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--visitors);
+    opacity: 0.16;
+    border-radius: 3px;
+  }
+
+  .row-name { position: relative; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row-val { position: relative; font-family: var(--mono); font-size: 0.72rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+  .empty { color: var(--muted); font-size: 0.78rem; padding: 0.5rem 0; }
+
+  footer {
+    margin-top: 2.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--hairline);
+    color: var(--muted);
+    font-size: 0.76rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+  }
+  footer a { color: var(--ink-2); }
+
+  .banner {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    color: var(--ink-2);
+    font-size: 0.85rem;
+  }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>Cairn</h1>
+      <p class="tagline">anonymous markers, not surveillance</p>
+    </div>
+
+    <div class="controls">
+      <label class="sr-only" for="site">Site</label>
+      <select id="site"></select>
+
+      <div class="range" role="group" aria-label="Time range">
+        <button data-days="1">24h</button>
+        <button data-days="7" aria-pressed="true">7d</button>
+        <button data-days="30">30d</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="status"></div>
+
+  <section class="stats" id="stats" hidden>
+    <div class="stat">
+      <div class="stat-label">Visitors</div>
+      <div class="stat-value" id="s-visitors">–</div>
+      <div class="stat-note" id="s-visitors-note"></div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Pageviews</div>
+      <div class="stat-value" id="s-views">–</div>
+      <div class="stat-note" id="s-range"></div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Right now</div>
+      <div class="stat-value"><span class="live-dot idle" id="s-dot"></span><span id="s-live">–</span></div>
+      <div class="stat-note">last 5 minutes</div>
+    </div>
+  </section>
+
+  <section class="card" id="chart-card" hidden>
+    <div class="card-head">
+      <h2 id="chart-title">Traffic</h2>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--visitors)"></i>Visitors</span>
+        <span><i class="swatch" style="background:var(--views)"></i>Pageviews</span>
+      </div>
+      <button class="toggle" id="view-toggle" aria-pressed="false">table</button>
+    </div>
+
+    <div class="chart-wrap" id="chart-wrap">
+      <svg id="chart" role="img" aria-labelledby="chart-title"></svg>
+      <div class="tip" id="tip"></div>
+    </div>
+
+    <div id="chart-table" hidden></div>
+  </section>
+
+  <section class="panels" id="panels" hidden></section>
+
+  <footer>
+    <span>No cookies. No consent banner needed, because nothing is stored on your device.</span>
+    <span>IPs are hashed with a salt that rotates daily and never written down.</span>
+    <a href="https://github.com/Gautamstar/cairn">Source</a>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // Must match the `sites` variable in infra/variables.tf. A site sending
+  // events that is not listed here still records rows, but the rollup will
+  // never aggregate them, so it will show as empty rather than missing.
+  var SITES = ['gautamstar.github.io'];
+
+  var PANELS = [
+    ['pages', 'Top pages'],
+    ['referrers', 'Referrers'],
+    ['countries', 'Countries'],
+    ['browsers', 'Browsers'],
+    ['systems', 'Operating systems'],
+    ['devices', 'Devices'],
+    ['events', 'Custom events']
+  ];
+
+  var state = { site: SITES[0], days: 7, data: null, table: false };
+
+  // In production the dashboard is served from the same distribution as the
+  // API, so a relative path is correct and no configuration exists to get
+  // wrong. `?api=` lets a local copy talk to the deployed API while iterating
+  // on this file, and is honoured only on localhost so that a link with an
+  // `api` parameter cannot point a real visitor's dashboard at someone else's
+  // server.
+  var API = '';
+  if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) {
+    API = new URLSearchParams(location.search).get('api') || '';
+  }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var fmt = function (n) { return (n || 0).toLocaleString(); };
+
+  // ---------- boot ----------
+
+  var params = new URLSearchParams(location.search);
+  var requested = params.get('site');
+  if (requested && SITES.indexOf(requested) === -1) SITES.push(requested);
+  if (requested) state.site = requested;
+
+  SITES.forEach(function (s) {
+    var o = document.createElement('option');
+    o.value = o.textContent = s;
+    if (s === state.site) o.selected = true;
+    $('site').appendChild(o);
+  });
+
+  $('site').addEventListener('change', function (e) {
+    state.site = e.target.value;
+    load();
+  });
+
+  document.querySelectorAll('.range button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      state.days = Number(b.dataset.days);
+      document.querySelectorAll('.range button').forEach(function (o) {
+        o.setAttribute('aria-pressed', String(o === b));
+      });
+      load();
+    });
+  });
+
+  $('view-toggle').addEventListener('click', function () {
+    state.table = !state.table;
+    $('view-toggle').setAttribute('aria-pressed', String(state.table));
+    $('view-toggle').textContent = state.table ? 'chart' : 'table';
+    render();
+  });
+
+  // ---------- data ----------
+
+  function load() {
+    setStatus('Loading…');
+    fetch(API + '/api/stats/' + encodeURIComponent(state.site) + '?days=' + state.days)
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (d) {
+        state.data = d;
+        setStatus(null);
+        render();
+      })
+      .catch(function (e) {
+        setStatus('Could not load stats (' + e.message + ').');
+      });
+  }
+
+  function setStatus(msg) {
+    var el = $('status');
+    if (msg) {
+      el.innerHTML = '<div class="banner"></div>';
+      el.firstChild.textContent = msg;
+      ['stats', 'chart-card', 'panels'].forEach(function (i) { $(i).hidden = true; });
+    } else {
+      el.innerHTML = '';
+      ['stats', 'chart-card', 'panels'].forEach(function (i) { $(i).hidden = false; });
+    }
+  }
+
+  // ---------- render ----------
+
+  function render() {
+    var d = state.data;
+    if (!d) return;
+
+    $('s-visitors').textContent = fmt(d.visitors);
+    $('s-views').textContent = fmt(d.views);
+    $('s-live').textContent = fmt(d.live);
+    $('s-dot').className = 'live-dot' + (d.live > 0 ? '' : ' idle');
+    $('s-range').textContent = d.from === d.to ? d.from : d.from + ' → ' + d.to;
+
+    // Stated plainly rather than buried, because a range total that sums daily
+    // uniques is not the same number people assume it is. It cannot be made
+    // exact without keeping an identifier that outlives the day, which is the
+    // thing this project refuses to keep.
+    $('s-visitors-note').textContent = state.days > 1
+      ? 'sum of daily uniques'
+      : 'unique today';
+
+    var hourly = state.days === 1;
+    var pts = hourly ? (d.hours || []) : (d.series || []);
+    $('chart-title').textContent = hourly ? 'Traffic by hour (UTC)' : 'Traffic by day';
+
+    if (hourly) {
+      // Pad to a full 24 hours so a quiet morning reads as quiet rather than as
+      // a chart that starts at noon.
+      var byHour = {};
+      pts.forEach(function (p) { byHour[p.hour] = p; });
+      pts = [];
+      for (var h = 0; h < 24; h++) {
+        pts.push(byHour[h] || { hour: h, views: 0, visitors: 0 });
+      }
+    }
+
+    var labelled = pts.map(function (p) {
+      return {
+        label: hourly ? String(p.hour).padStart(2, '0') : p.date.slice(5),
+        full: hourly ? String(p.hour).padStart(2, '0') + ':00 UTC' : p.date,
+        visitors: p.visitors,
+        views: p.views
+      };
+    });
+
+    $('chart').hidden = state.table;
+    $('chart-table').hidden = !state.table;
+    if (state.table) renderTable(labelled); else renderChart(labelled);
+
+    renderPanels(d);
+  }
+
+  function renderTable(pts) {
+    var rows = pts.map(function (p) {
+      return '<tr><td>' + esc(p.full) + '</td><td>' + fmt(p.visitors) + '</td><td>' + fmt(p.views) + '</td></tr>';
+    }).join('');
+    $('chart-table').innerHTML =
+      '<table><thead><tr><th>Period</th><th>Visitors</th><th>Pageviews</th></tr></thead><tbody>'
+      + rows + '</tbody></table>';
+  }
+
+  // Rounded only at the data end, anchored flat to the baseline.
+  function barPath(x, y, w, h, r) {
+    if (h <= 0) return '';
+    r = Math.min(r, w / 2, h);
+    return 'M' + x + ',' + (y + h) +
+           'L' + x + ',' + (y + r) +
+           'Q' + x + ',' + y + ' ' + (x + r) + ',' + y +
+           'L' + (x + w - r) + ',' + y +
+           'Q' + (x + w) + ',' + y + ' ' + (x + w) + ',' + (y + r) +
+           'L' + (x + w) + ',' + (y + h) + 'Z';
+  }
+
+  function renderChart(pts) {
+    var W = 860, H = 260, PL = 42, PR = 8, PT = 14, PB = 26;
+    var plotW = W - PL - PR, plotH = H - PT - PB;
+    var max = Math.max(1, Math.max.apply(null, pts.map(function (p) { return Math.max(p.views, p.visitors); })));
+
+    // Round the top of the scale up so gridlines land on readable numbers.
+    var step = Math.pow(10, Math.floor(Math.log10(max)));
+    var top = Math.ceil(max / step) * step;
+    if (top === max) top += step;
+
+    var band = plotW / Math.max(pts.length, 1);
+    var gap = 2;                                    // surface gap between fills
+    var bw = Math.max(2, (band - gap * 3) / 2);
+
+    var out = [];
+
+    // gridlines + y labels
+    for (var t = 0; t <= 4; t++) {
+      var v = top * t / 4;
+      var y = PT + plotH - (v / top) * plotH;
+      out.push('<line class="grid-line" x1="' + PL + '" y1="' + y + '" x2="' + (W - PR) + '" y2="' + y + '"/>');
+      out.push('<text class="axis-text" x="' + (PL - 8) + '" y="' + (y + 3) + '" text-anchor="end">' + fmt(Math.round(v)) + '</text>');
+    }
+
+    // Thin x labels so they never collide, regardless of range length.
+    var every = Math.ceil(pts.length / 12);
+
+    pts.forEach(function (p, i) {
+      var x0 = PL + i * band;
+      var hv = (p.visitors / top) * plotH;
+      var hw = (p.views / top) * plotH;
+
+      out.push('<path d="' + barPath(x0 + gap, PT + plotH - hv, bw, hv, 4) + '" fill="var(--visitors)"/>');
+      out.push('<path d="' + barPath(x0 + gap * 2 + bw, PT + plotH - hw, bw, hw, 4) + '" fill="var(--views)"/>');
+
+      if (i % every === 0) {
+        out.push('<text class="axis-text" x="' + (x0 + band / 2) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(p.label) + '</text>');
+      }
+
+      // Hit target spans the whole band, so hovering never requires precision.
+      out.push('<rect class="hit" x="' + x0 + '" y="' + PT + '" width="' + band + '" height="' + plotH +
+               '" data-i="' + i + '"><title>' + esc(p.full) + ': ' + p.visitors + ' visitors, ' + p.views + ' pageviews</title></rect>');
+    });
+
+    // baseline
+    out.push('<line x1="' + PL + '" y1="' + (PT + plotH) + '" x2="' + (W - PR) + '" y2="' + (PT + plotH) + '" stroke="rgba(232,232,227,0.18)"/>');
+
+    var el = $('chart');
+    el.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    el.innerHTML = out.join('');
+
+    wireTooltip(el, pts, W);
+  }
+
+  function wireTooltip(svg, pts, W) {
+    var tip = $('tip');
+    var wrap = $('chart-wrap');
+
+    svg.querySelectorAll('.hit').forEach(function (r) {
+      r.addEventListener('mouseenter', function () {
+        var p = pts[Number(r.dataset.i)];
+        tip.innerHTML =
+          '<div class="k">' + esc(p.full) + '</div>' +
+          '<div class="row"><i class="swatch" style="background:var(--visitors)"></i>' + fmt(p.visitors) + ' visitors</div>' +
+          '<div class="row"><i class="swatch" style="background:var(--views)"></i>' + fmt(p.views) + ' pageviews</div>';
+        tip.classList.add('on');
+
+        var box = wrap.getBoundingClientRect();
+        var cx = (Number(r.getAttribute('x')) + Number(r.getAttribute('width')) / 2) / W * box.width;
+        tip.style.left = Math.min(Math.max(cx - 60, 0), box.width - 150) + 'px';
+        tip.style.top = '4px';
+      });
+      r.addEventListener('mouseleave', function () { tip.classList.remove('on'); });
+    });
+  }
+
+  function renderPanels(d) {
+    var html = PANELS.map(function (pair) {
+      var key = pair[0], title = pair[1];
+      var items = d[key] || [];
+      if (key === 'events' && items.length === 0) return '';
+
+      var max = items.length ? items[0].views : 1;
+      var rows = items.length
+        ? items.map(function (it) {
+            var pct = Math.max(2, (it.views / max) * 100);
+            return '<div class="row">' +
+                   '<span class="row-bar" style="width:' + pct + '%"></span>' +
+                   '<span class="row-name">' + esc(it.name) + '</span>' +
+                   '<span class="row-val">' + fmt(it.views) + '</span></div>';
+          }).join('')
+        : '<div class="empty">Nothing yet.</div>';
+
+      return '<div class="card"><div class="card-head"><h2>' + title + '</h2></div><div class="rows">' + rows + '</div></div>';
+    }).join('');
+
+    $('panels').innerHTML = html;
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  load();
+  // The live count is the only figure that goes stale while you watch it.
+  setInterval(load, 60000);
+})();
+</script>
+</body>
+</html>
