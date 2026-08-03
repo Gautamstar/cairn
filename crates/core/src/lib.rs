@@ -15,10 +15,12 @@ pub mod aggregate;
 pub mod bots;
 pub mod event;
 pub mod normalize;
+pub mod origin;
 pub mod privacy;
 pub mod ua;
 
 pub use aggregate::{Counts, Dimension};
 pub use event::{EventContext, EventError, RawEvent, StoredEvent};
+pub use origin::{ORIGIN_HEADER, secret_matches};
 pub use privacy::{DailySalt, VisitorId};
 pub use ua::{Browser, DeviceClass, Os, UserAgent};

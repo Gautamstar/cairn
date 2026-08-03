@@ -34,6 +34,12 @@ struct App {
     dynamo: aws_sdk_dynamodb::Client,
     table: String,
     secret: Vec<u8>,
+    /// Shared secret CloudFront attaches to origin requests.
+    ///
+    /// `None` disables the check, which is only correct when nothing is in
+    /// front of the handler. That is the local-testing case; Terraform always
+    /// sets it in AWS.
+    origin_secret: Option<String>,
 }
 
 impl App {
@@ -43,10 +49,21 @@ impl App {
             .map_err(|_| "CAIRN_TABLE must be set to the DynamoDB table name")?;
         let secret = load_secret(&config).await?;
 
+        let origin_secret = std::env::var("CAIRN_ORIGIN_SECRET")
+            .ok()
+            .filter(|s| !s.is_empty());
+        if origin_secret.is_none() {
+            tracing::warn!(
+                "CAIRN_ORIGIN_SECRET is unset; the CloudFront-only check is DISABLED and \
+                 visitor identification can be forged by calling the API directly"
+            );
+        }
+
         Ok(Self {
             dynamo: aws_sdk_dynamodb::Client::new(&config),
             table,
             secret,
+            origin_secret,
         })
     }
 }
@@ -110,6 +127,20 @@ async fn main() -> Result<(), Error> {
 }
 
 async fn handle(app: Arc<App>, request: Request) -> Result<Response<Body>, Error> {
+    // First, before anything else is trusted. API Gateway is publicly
+    // reachable, and a request that skipped CloudFront carries no
+    // CloudFront-Viewer-Address, which would send visitor identification down
+    // the X-Forwarded-For fallback that the caller fully controls.
+    //
+    // 403 with no body and no explanation: a caller probing the endpoint learns
+    // only that it refused.
+    if let Some(expected) = &app.origin_secret {
+        let presented = header(&request, cairn_core::ORIGIN_HEADER).unwrap_or_default();
+        if !cairn_core::secret_matches(expected, presented) {
+            return Ok(status_only(403));
+        }
+    }
+
     // sendBeacon posts `text/plain`, which is a CORS-simple request and so is
     // never preflighted. This arm exists for the fetch() fallback path in the
     // tracker, which can be preflighted on some browsers.
@@ -236,25 +267,54 @@ fn header<'a>(request: &'a Request, name: &str) -> Option<&'a str> {
 
 /// The visitor's address, used only to derive the visitor hash.
 ///
-/// CloudFront *appends* the address it observed to any `X-Forwarded-For` the
-/// viewer supplied, so the trustworthy value is the last entry, not the first.
-/// Reading the first entry would let a visitor send their own header and pick
-/// their visitor ID, inflating the unique-visitor count at will.
+/// Three sources, in descending order of trustworthiness.
+///
+/// `CloudFront-Viewer-Address` is set by CloudFront from the connection it
+/// terminated, and it *overwrites* any value the client sent, so it cannot be
+/// forged. That matters: a visitor who can choose the input to the hash can
+/// choose their own visitor ID and inflate the unique count at will.
+///
+/// `X-Forwarded-For` is the fallback, and deliberately only that. Every proxy
+/// in the chain appends to it, so with CloudFront in front of API Gateway the
+/// viewer address is second from the end rather than last. Depending on a
+/// position that shifts when the topology changes is how this breaks quietly,
+/// so it is used only when the header above is absent.
 fn client_ip(request: &Request) -> String {
-    if let Some(observed) = header(request, "x-forwarded-for")
-        .and_then(|forwarded| forwarded.rsplit(',').next())
+    if let Some(address) = header(request, "cloudfront-viewer-address").and_then(strip_port) {
+        return address.to_string();
+    }
+
+    if let Some(forwarded) = header(request, "x-forwarded-for")
+        .and_then(|forwarded| forwarded.split(',').next())
         .map(str::trim)
         .filter(|ip| !ip.is_empty())
     {
-        return observed.to_string();
+        return forwarded.to_string();
     }
 
-    // No proxy in front, which happens when the Function URL is hit directly
-    // during local testing.
+    // Nothing in front at all, which is the local-testing case.
     match request.request_context() {
         RequestContext::ApiGatewayV2(context) => context.http.source_ip.unwrap_or_default(),
         _ => String::new(),
     }
+}
+
+/// Strip the port from a `CloudFront-Viewer-Address` value.
+///
+/// The header is `IP:port`, and IPv6 arrives bracketed as `[2001:db8::1]:54321`,
+/// so splitting on the last colon is only correct after accounting for the
+/// brackets.
+fn strip_port(address: &str) -> Option<&str> {
+    let address = address.trim();
+    if address.is_empty() {
+        return None;
+    }
+
+    if let Some(bracket) = address.rfind(']') {
+        return Some(&address[..=bracket]);
+    }
+
+    Some(address.rsplit_once(':').map_or(address, |(ip, _)| ip))
 }
 
 fn no_content() -> Response<Body> {
@@ -285,4 +345,29 @@ fn cors(builder: lambda_http::http::response::Builder) -> lambda_http::http::res
     builder
         .header("access-control-allow-origin", "*")
         .header("cache-control", "no-store")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_port;
+
+    #[test]
+    fn strips_ipv4_ports() {
+        assert_eq!(strip_port("203.0.113.7:54321"), Some("203.0.113.7"));
+        assert_eq!(strip_port("203.0.113.7"), Some("203.0.113.7"));
+    }
+
+    /// IPv6 arrives bracketed, so splitting on the last colon without checking
+    /// for the closing bracket would truncate the address itself.
+    #[test]
+    fn keeps_ipv6_addresses_intact() {
+        assert_eq!(strip_port("[2001:db8::1]:54321"), Some("[2001:db8::1]"));
+        assert_eq!(strip_port("[2001:db8::1]"), Some("[2001:db8::1]"));
+    }
+
+    #[test]
+    fn rejects_empty_values() {
+        assert_eq!(strip_port(""), None);
+        assert_eq!(strip_port("   "), None);
+    }
 }

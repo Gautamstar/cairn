@@ -39,6 +39,9 @@ const MAX_DAYS: u32 = 90;
 struct App {
     dynamo: aws_sdk_dynamodb::Client,
     table: String,
+    /// Shared secret CloudFront attaches to origin requests. `None` disables
+    /// the check, which is only correct for local testing.
+    origin_secret: Option<String>,
 }
 
 impl App {
@@ -50,6 +53,9 @@ impl App {
         Ok(Self {
             dynamo: aws_sdk_dynamodb::Client::new(&config),
             table,
+            origin_secret: std::env::var("CAIRN_ORIGIN_SECRET")
+                .ok()
+                .filter(|secret| !secret.is_empty()),
         })
     }
 }
@@ -113,6 +119,25 @@ async fn main() -> Result<(), Error> {
 }
 
 async fn handle(app: Arc<App>, request: Request) -> Result<Response<Body>, Error> {
+    // The stats this returns are meant to be public, so this is not protecting
+    // secrets. It protects the cache: calling API Gateway directly bypasses
+    // CloudFront's 60-second cache entirely, turning a page refresh into an
+    // uncached Lambda invocation and a DynamoDB query every time.
+    if let Some(expected) = &app.origin_secret {
+        let presented = request
+            .headers()
+            .get(cairn_core::ORIGIN_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+
+        if !cairn_core::secret_matches(expected, presented) {
+            return Ok(json_response(
+                403,
+                &serde_json::json!({ "error": "forbidden" }),
+            ));
+        }
+    }
+
     let Some(site) = site_from_path(request.uri().path()) else {
         return Ok(json_response(
             400,
