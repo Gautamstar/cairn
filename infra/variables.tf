@@ -11,8 +11,17 @@ variable "sites" {
     variable change, and a lookup table would be infrastructure for a
     multi-tenant product that does not exist.
   EOT
-  type        = list(string)
-  default     = ["gautamstar.github.io"]
+  # Slugs rather than hostnames, and deliberately. The site ID is part of the
+  # DynamoDB partition key, so changing one splits its history into two
+  # unconnected halves. A slug survives a move to a custom domain; a hostname
+  # forces a choice between fracturing the data and keeping an ID that no
+  # longer describes anything.
+  #
+  #   portfolio  gautamstar.github.io
+  #   fitmit     fitpdf-rose.vercel.app
+  #   edaproj    eda-proj.vercel.app
+  type    = list(string)
+  default = ["portfolio", "fitmit", "edaproj"]
 
   validation {
     condition     = length(var.sites) > 0

@@ -374,9 +374,9 @@
   'use strict';
 
   // Must match the `sites` variable in infra/variables.tf. A site sending
-  // events that is not listed here still records rows, but the rollup will
-  // never aggregate them, so it will show as empty rather than missing.
-  var SITES = ['gautamstar.github.io'];
+  // events that is not listed there still records raw rows, but the rollup
+  // never aggregates them, so it shows as empty rather than missing.
+  var SITES = ['portfolio', 'fitmit', 'edaproj'];
 
   var PANELS = [
     ['pages', 'Top pages'],
