@@ -87,8 +87,14 @@ resource "aws_cloudwatch_log_group" "lambda" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_event_rule" "rollup" {
-  name                = "cairn-rollup-hourly"
-  description         = "Recompute today's and yesterday's aggregates from raw events"
+  name        = "cairn-rollup-hourly"
+  description = "Recompute today's and yesterday's aggregates from raw events"
+
+  # Hourly. This interval is the dashboard's freshness for everything except the
+  # live counter, so a pageview can sit invisible in the charts for up to an
+  # hour. That is a deliberate trade rather than a limit: shortening it is a
+  # one-line change and stays inside the free tier, and the job recomputes
+  # rather than increments, so running it more often is safe by construction.
   schedule_expression = "rate(1 hour)"
 }
 
