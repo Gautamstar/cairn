@@ -15,7 +15,7 @@ data "aws_iam_policy_document" "lambda_assume" {
 # union of all three, and the blast radius of a bug in the public write endpoint
 # would become "everything Cairn can do".
 resource "aws_iam_role" "lambda" {
-  for_each = toset(["ingest", "query", "rollup"])
+  for_each = toset(["account", "ingest", "query", "rollup"])
 
   name               = "cairn-${each.key}"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
@@ -71,6 +71,39 @@ data "aws_iam_policy_document" "query" {
     actions   = ["dynamodb:Query"]
     resources = [aws_dynamodb_table.cairn.arn]
   }
+
+  # Authorization reads two single rows per request: the site's ownership row
+  # and, for a private site, the caller's session. Without GetItem the handler
+  # compiles and then denies every request at run time.
+  statement {
+    sid       = "ReadSiteOwnershipAndSessions"
+    actions   = ["dynamodb:GetItem"]
+    resources = [aws_dynamodb_table.cairn.arn]
+  }
+}
+
+# ---------------------------------------------------------------------------
+# account: the only writer of account rows
+# ---------------------------------------------------------------------------
+
+data "aws_iam_policy_document" "account" {
+  statement {
+    sid = "ManageAccountsAndSites"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:Query",
+    ]
+    resources = [aws_dynamodb_table.cairn.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "account" {
+  name   = "cairn-account"
+  role   = aws_iam_role.lambda["account"].id
+  policy = data.aws_iam_policy_document.account.json
 }
 
 resource "aws_iam_role_policy" "query" {
@@ -90,6 +123,9 @@ data "aws_iam_policy_document" "rollup" {
       "dynamodb:Query",
       "dynamodb:BatchWriteItem",
       "dynamodb:PutItem",
+      # Reads the site registry, so a customer registered since the last
+      # deploy is aggregated without a Terraform apply.
+      "dynamodb:GetItem",
     ]
     resources = [aws_dynamodb_table.cairn.arn]
   }

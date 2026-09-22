@@ -27,6 +27,7 @@ use cairn_core::aggregate::{self, Dimension};
 use lambda_http::{Body, Error, Request, RequestExt, Response, run, service_fn};
 use serde::Serialize;
 use std::sync::Arc;
+use cairn_core::account::{Email, SessionToken};
 use time::{Duration, OffsetDateTime};
 
 /// Entries returned per ranked panel.
@@ -34,6 +35,8 @@ const TOP_N: usize = 10;
 /// A visitor counts as "live" if they have been seen within this window.
 const LIVE_WINDOW_MINUTES: i64 = 5;
 const DEFAULT_DAYS: u32 = 7;
+/// Cookie carrying the session token. Must match `cairn-account`.
+const SESSION_COOKIE: &str = "cairn_session";
 const MAX_DAYS: u32 = 90;
 
 struct App {
@@ -119,10 +122,10 @@ async fn main() -> Result<(), Error> {
 }
 
 async fn handle(app: Arc<App>, request: Request) -> Result<Response<Body>, Error> {
-    // The stats this returns are meant to be public, so this is not protecting
-    // secrets. It protects the cache: calling API Gateway directly bypasses
-    // CloudFront's 60-second cache entirely, turning a page refresh into an
-    // uncached Lambda invocation and a DynamoDB query every time.
+    // This is not the access check: it protects the cache. Calling API Gateway
+    // directly bypasses CloudFront's 60-second cache entirely, turning a page
+    // refresh into an uncached Lambda invocation and a DynamoDB query every
+    // time. Who may read a site is decided by `authorize` below.
     if let Some(expected) = &app.origin_secret {
         let presented = request
             .headers()
@@ -152,8 +155,127 @@ async fn handle(app: Arc<App>, request: Request) -> Result<Response<Body>, Error
         .unwrap_or(DEFAULT_DAYS)
         .clamp(1, MAX_DAYS);
 
-    let stats = collect(&app, &site, days, OffsetDateTime::now_utc()).await?;
-    Ok(json_response(200, &stats))
+    match authorize(&app, &site, &request).await? {
+        Access::Granted { cacheable } => {
+            let stats = collect(&app, &site, days, OffsetDateTime::now_utc()).await?;
+            Ok(stats_response(&stats, cacheable))
+        }
+        // Deliberately the same answer for "no such site" and "not yours". A
+        // stranger guessing site ids must not be able to tell which of their
+        // guesses exist.
+        Access::Denied => Ok(json_response(
+            404,
+            &serde_json::json!({ "error": "no such site" }),
+        )),
+    }
+}
+
+/// Whether this request may read this site, and whether the answer is shared.
+enum Access {
+    Granted {
+        /// A public site's stats are identical for everyone, so CloudFront may
+        /// cache them. A private site's answer depends on the caller's cookie
+        /// and must never be stored in a shared cache.
+        cacheable: bool,
+    },
+    Denied,
+}
+
+async fn authorize(app: &App, site: &str, request: &Request) -> Result<Access, Error> {
+    let meta = app
+        .dynamo
+        .get_item()
+        .table_name(&app.table)
+        .key("pk", AttributeValue::S(format!("S#{site}")))
+        .key("sk", AttributeValue::S("META".into()))
+        .send()
+        .await?;
+
+    // An unregistered site is closed, not open. Cairn's own sites predate
+    // accounts and must be registered once before their dashboards work again;
+    // defaulting the other way would make every future customer's data public
+    // until they noticed.
+    let Some(item) = meta.item() else {
+        return Ok(Access::Denied);
+    };
+
+    let public = item
+        .get("public")
+        .and_then(|value| value.as_bool().ok())
+        .copied()
+        .unwrap_or(false);
+    if public {
+        return Ok(Access::Granted { cacheable: true });
+    }
+
+    let owner = item
+        .get("owner")
+        .and_then(|value| value.as_s().ok())
+        .cloned()
+        .unwrap_or_default();
+
+    let Some(email) = session_email(app, request).await? else {
+        return Ok(Access::Denied);
+    };
+
+    if email.as_str() == owner {
+        Ok(Access::Granted { cacheable: false })
+    } else {
+        Ok(Access::Denied)
+    }
+}
+
+/// The account behind this request's session cookie, if it has a live one.
+async fn session_email(app: &App, request: &Request) -> Result<Option<Email>, Error> {
+    let Some(header) = request.headers().get("cookie").and_then(|v| v.to_str().ok()) else {
+        return Ok(None);
+    };
+    let Some(presented) = cairn_core::account::cookie_value(header, SESSION_COOKIE) else {
+        return Ok(None);
+    };
+
+    let found = app
+        .dynamo
+        .get_item()
+        .table_name(&app.table)
+        .key(
+            "pk",
+            AttributeValue::S(SessionToken::pk(&SessionToken::hash_presented(presented))),
+        )
+        .key("sk", AttributeValue::S("SESSION".into()))
+        .send()
+        .await?;
+
+    let Some(item) = found.item() else {
+        return Ok(None);
+    };
+
+    // TTL deletion is eventual, so expiry is checked rather than assumed from
+    // the row still being there.
+    let live = item
+        .get("ttl")
+        .and_then(|value| value.as_n().ok())
+        .and_then(|value| value.parse::<i64>().ok())
+        .is_some_and(|expires| expires > OffsetDateTime::now_utc().unix_timestamp());
+    if !live {
+        return Ok(None);
+    }
+
+    Ok(item
+        .get("email")
+        .and_then(|value| value.as_s().ok())
+        .and_then(|email| Email::parse(email).ok()))
+}
+
+/// Stats, with a cache policy that depends on whether they are shared.
+fn stats_response(stats: &Stats, cacheable: bool) -> Response<Body> {
+    let mut response = json_response(200, stats);
+    if !cacheable {
+        response
+            .headers_mut()
+            .insert("cache-control", "no-store, private".parse().expect("valid"));
+    }
+    response
 }
 
 /// The site is the final path segment of `/api/stats/{site}`.
