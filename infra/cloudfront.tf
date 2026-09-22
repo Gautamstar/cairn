@@ -60,24 +60,33 @@ resource "aws_cloudfront_origin_request_policy" "ingest" {
   }
 }
 
-# Account traffic: every header and cookie forwarded, nothing cached. These
-# responses are per-session and several are writes.
+# Account traffic. A whitelist, like the policies above, and for a sharper
+# reason than tidiness: forwarding every viewer header would forward `Host`,
+# and API Gateway identifies the API by its Host header, so a request arriving
+# as `<distribution>.cloudfront.net` is refused with a 403 before any handler
+# runs. Only what the account handler reads is sent.
 resource "aws_cloudfront_origin_request_policy" "account" {
-  name = "${local.name}-account"
+  name    = "cairn-account"
+  comment = "Content type and the session cookie"
 
   headers_config {
-    header_behavior = "allViewerAndWhitelistCloudFront"
+    header_behavior = "whitelist"
+
     headers {
-      items = ["CloudFront-Viewer-Country"]
+      items = ["content-type"]
     }
   }
 
   cookies_config {
-    cookie_behavior = "all"
+    cookie_behavior = "whitelist"
+
+    cookies {
+      items = ["cairn_session"]
+    }
   }
 
   query_strings_config {
-    query_string_behavior = "all"
+    query_string_behavior = "none"
   }
 }
 
