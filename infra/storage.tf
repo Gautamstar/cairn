@@ -3,11 +3,12 @@
 # ---------------------------------------------------------------------------
 
 resource "aws_dynamodb_table" "cairn" {
-  name         = local.name
-  billing_mode = "PROVISIONED"
-
-  read_capacity  = var.table_capacity
-  write_capacity = var.table_capacity
+  name = local.name
+  # On-demand rather than provisioned. Provisioned capacity is a fixed monthly
+  # cost that neither falls to zero on a quiet week nor rises when a customer
+  # signs up, which is the wrong shape for a table whose traffic is now other
+  # people's. It also removes the throttling cliff at the provisioned ceiling.
+  billing_mode = "PAY_PER_REQUEST"
 
   hash_key  = "pk"
   range_key = "sk"

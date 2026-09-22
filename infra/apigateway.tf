@@ -57,6 +57,13 @@ resource "aws_apigatewayv2_integration" "query" {
   payload_format_version = "2.0"
 }
 
+resource "aws_apigatewayv2_integration" "account" {
+  api_id                 = aws_apigatewayv2_api.cairn.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.cairn["account"].invoke_arn
+  payload_format_version = "2.0"
+}
+
 resource "aws_apigatewayv2_route" "ingest" {
   api_id    = aws_apigatewayv2_api.cairn.id
   route_key = "POST /e"
@@ -75,6 +82,34 @@ resource "aws_apigatewayv2_route" "stats" {
   api_id    = aws_apigatewayv2_api.cairn.id
   route_key = "GET /api/stats/{site}"
   target    = "integrations/${aws_apigatewayv2_integration.query.id}"
+}
+
+# Listed one by one rather than behind a `{proxy+}`, so a route that is not
+# implemented is a 404 from API Gateway instead of a Lambda invocation that has
+# to decide it was never a real route.
+resource "aws_apigatewayv2_route" "account" {
+  for_each = toset([
+    "POST /api/auth/signup",
+    "POST /api/auth/login",
+    "POST /api/auth/logout",
+    "GET /api/auth/me",
+    "GET /api/sites",
+    "POST /api/sites",
+    "PATCH /api/sites/{site}",
+    "DELETE /api/sites/{site}",
+  ])
+
+  api_id    = aws_apigatewayv2_api.cairn.id
+  route_key = each.value
+  target    = "integrations/${aws_apigatewayv2_integration.account.id}"
+}
+
+resource "aws_lambda_permission" "apigw_account" {
+  statement_id  = "AllowApiGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.cairn["account"].function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.cairn.execution_arn}/*/*"
 }
 
 # Scoped to this API. Without the source ARN condition any API Gateway in any

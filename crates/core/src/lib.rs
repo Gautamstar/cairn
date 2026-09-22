@@ -11,6 +11,7 @@
 //! and it has no field for an IP address, so "we never store IPs" is a property
 //! of the type rather than a promise in a README.
 
+pub mod account;
 pub mod aggregate;
 pub mod bots;
 pub mod event;
@@ -19,6 +20,7 @@ pub mod origin;
 pub mod privacy;
 pub mod ua;
 
+pub use account::{AccountError, Email, SessionToken, SiteId, Visibility};
 pub use aggregate::{Counts, Dimension};
 pub use event::{EventContext, EventError, RawEvent, StoredEvent};
 pub use origin::{ORIGIN_HEADER, secret_matches};
