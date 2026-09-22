@@ -345,6 +345,11 @@ async fn rollup_day(app: &App, site: &str, day: &str) -> Result<DaySummary, Erro
     let items_written = items.len();
     write_items(app, items).await?;
 
+    // Usage for plan limits. A plain overwrite, keyed by day: re-running a day
+    // rewrites the same row with the same count instead of adding to it, which
+    // is the same idempotency argument the aggregates rest on.
+    write_usage(app, site, day, events, aggregate.day.views).await?;
+
     let summary = DaySummary {
         site: site.to_string(),
         day: day.to_string(),
@@ -441,6 +446,28 @@ async fn archive_hour(
 ///
 /// The table runs at 5 provisioned WCU to stay inside the perpetual free tier,
 /// which is ample for ingest but easy to exceed in a burst of aggregate writes.
+/// Record how many events a site produced on one day.
+async fn write_usage(
+    app: &App,
+    site: &str,
+    day: &str,
+    events: usize,
+    views: u64,
+) -> Result<(), Error> {
+    use aws_sdk_dynamodb::types::AttributeValue;
+
+    app.dynamo
+        .put_item()
+        .table_name(&app.table)
+        .item("pk", AttributeValue::S(cairn_core::account::usage_pk(site)))
+        .item("sk", AttributeValue::S(day.to_string()))
+        .item("events", AttributeValue::N(events.to_string()))
+        .item("views", AttributeValue::N(views.to_string()))
+        .send()
+        .await?;
+    Ok(())
+}
+
 /// `BatchWriteItem` does not fail on throttling, it returns the leftovers in
 /// `unprocessed_items`, and dropping those on the floor would silently lose
 /// panels from the dashboard.

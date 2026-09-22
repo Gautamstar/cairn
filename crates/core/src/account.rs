@@ -26,8 +26,8 @@
 
 use std::fmt;
 
-use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
+use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 
 /// Upper bound on a site identifier. Shorter than [`crate::event::MAX_SITE_LEN`]
 /// because a registered site is typed by a human, not accepted from a payload.
@@ -150,6 +150,95 @@ impl fmt::Display for SiteId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
     }
+}
+
+/// What an account has paid for.
+///
+/// Limits live here rather than in a config file because they are part of the
+/// product, not the deployment: changing what "starter" means is a code change
+/// that arrives with a test, not an environment variable someone edits at 2am.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Plan {
+    Free,
+    Starter,
+    Pro,
+}
+
+impl Plan {
+    /// Parse a stored plan name. Anything unrecognised is [`Plan::Free`]:
+    /// a corrupt row must not accidentally grant a paid allowance.
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "starter" => Self::Starter,
+            "pro" => Self::Pro,
+            _ => Self::Free,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Free => "free",
+            Self::Starter => "starter",
+            Self::Pro => "pro",
+        }
+    }
+
+    /// How many sites this plan may own.
+    pub fn max_sites(self) -> usize {
+        match self {
+            Self::Free => 1,
+            Self::Starter => 3,
+            Self::Pro => 10,
+        }
+    }
+
+    /// Events per calendar month, across every site on the account.
+    pub fn monthly_events(self) -> u64 {
+        match self {
+            Self::Free => 5_000,
+            Self::Starter => 100_000,
+            Self::Pro => 500_000,
+        }
+    }
+
+    /// Days of history the dashboard will show.
+    ///
+    /// Capped at 90 for every paid plan because the query reads one day per
+    /// DynamoDB call: a year would be 365 reads per dashboard load. Longer
+    /// retention needs a monthly rollup first, and should not be sold before
+    /// it exists.
+    pub fn retention_days(self) -> u32 {
+        match self {
+            Self::Free => 30,
+            Self::Starter | Self::Pro => 90,
+        }
+    }
+
+    /// Price in whole dollars per month, for display only. Stripe holds the
+    /// authoritative amount; this is what the upgrade panel prints.
+    pub fn monthly_price(self) -> u32 {
+        match self {
+            Self::Free => 0,
+            Self::Starter => 5,
+            Self::Pro => 12,
+        }
+    }
+}
+
+/// Usage rows are written per day and summed on read.
+///
+/// The rollup recomputes whole days rather than incrementing counters, because
+/// a counter is only correct if every event is counted exactly once forever.
+/// Usage follows the same rule: one row per site per day, overwritten on every
+/// run, so a re-run cannot inflate a month's total.
+pub fn usage_pk(site: &str) -> String {
+    format!("USAGE#{site}")
+}
+
+/// The `YYYY-MM` prefix a month's usage rows share.
+pub fn usage_month_prefix(day: &str) -> &str {
+    // `day` is `YYYY-MM-DD`; the first seven characters are the month.
+    day.get(..7).unwrap_or(day)
 }
 
 /// Whether a site's statistics may be read without a session.
@@ -277,7 +366,11 @@ mod tests {
     #[test]
     fn email_rejects_rubbish() {
         for bad in ["", "nope", "a@b", "a b@c.com", "a@b.com#x", "@b.com", "a@"] {
-            assert_eq!(Email::parse(bad), Err(AccountError::EmailInvalid), "{bad:?}");
+            assert_eq!(
+                Email::parse(bad),
+                Err(AccountError::EmailInvalid),
+                "{bad:?}"
+            );
         }
     }
 
@@ -293,8 +386,21 @@ mod tests {
     /// site's partition could be spelled more than one way.
     #[test]
     fn site_id_cannot_contain_a_key_delimiter() {
-        for bad in ["a#b", "", "-lead", "trail-", ".lead", "a..b", "has space", "up/down"] {
-            assert_eq!(SiteId::parse(bad), Err(AccountError::SiteIdInvalid), "{bad:?}");
+        for bad in [
+            "a#b",
+            "",
+            "-lead",
+            "trail-",
+            ".lead",
+            "a..b",
+            "has space",
+            "up/down",
+        ] {
+            assert_eq!(
+                SiteId::parse(bad),
+                Err(AccountError::SiteIdInvalid),
+                "{bad:?}"
+            );
         }
         assert!(SiteId::parse(&"a".repeat(MAX_SITE_ID_LEN)).is_ok());
         assert!(SiteId::parse(&"a".repeat(MAX_SITE_ID_LEN + 1)).is_err());
@@ -336,9 +442,15 @@ mod tests {
     fn only_the_token_hash_is_storable() {
         let token = SessionToken::from_entropy(&[9; 32]);
         assert_ne!(token.plaintext(), token.hash());
-        assert_eq!(SessionToken::hash_presented(token.plaintext()), token.hash());
+        assert_eq!(
+            SessionToken::hash_presented(token.plaintext()),
+            token.hash()
+        );
         assert_eq!(token.plaintext().len(), 64);
-        assert_eq!(SessionToken::pk(token.hash()), format!("T#{}", token.hash()));
+        assert_eq!(
+            SessionToken::pk(token.hash()),
+            format!("T#{}", token.hash())
+        );
     }
 
     #[test]
@@ -351,11 +463,56 @@ mod tests {
     fn a_cookie_header_yields_one_value() {
         let header = "other=1; cairn_session=abc123; last=2";
         assert_eq!(cookie_value(header, "cairn_session"), Some("abc123"));
-        assert_eq!(cookie_value("cairn_session=solo", "cairn_session"), Some("solo"));
+        assert_eq!(
+            cookie_value("cairn_session=solo", "cairn_session"),
+            Some("solo")
+        );
         assert_eq!(cookie_value(header, "absent"), None);
         assert_eq!(cookie_value("", "cairn_session"), None);
         // A cookie whose name merely ends with ours is a different cookie.
         assert_eq!(cookie_value("not_cairn_session=x", "cairn_session"), None);
+    }
+
+    #[test]
+    fn an_unknown_plan_name_is_never_a_paid_one() {
+        assert_eq!(Plan::parse("starter"), Plan::Starter);
+        assert_eq!(Plan::parse("  PRO "), Plan::Pro);
+        // The cases that matter: nothing here may grant a paid allowance.
+        for junk in ["", "enterprise", "free", "unlimited", "pro;--"] {
+            assert_eq!(Plan::parse(junk), Plan::Free, "{junk:?}");
+        }
+    }
+
+    #[test]
+    fn plans_are_ordered_by_what_they_give() {
+        let tiers = [Plan::Free, Plan::Starter, Plan::Pro];
+        for pair in tiers.windows(2) {
+            assert!(pair[0].max_sites() < pair[1].max_sites());
+            assert!(pair[0].monthly_events() < pair[1].monthly_events());
+            assert!(pair[0].monthly_price() < pair[1].monthly_price());
+            // Never less history for paying more.
+            assert!(pair[0].retention_days() <= pair[1].retention_days());
+        }
+        assert!(
+            Plan::Pro.retention_days() <= 90,
+            "the query cannot serve more than 90 days"
+        );
+    }
+
+    #[test]
+    fn a_plan_round_trips_through_its_stored_name() {
+        for plan in [Plan::Free, Plan::Starter, Plan::Pro] {
+            assert_eq!(Plan::parse(plan.as_str()), plan);
+        }
+    }
+
+    #[test]
+    fn usage_rows_group_by_month() {
+        assert_eq!(usage_pk("fitmit"), "USAGE#fitmit");
+        assert_eq!(usage_month_prefix("2026-09-22"), "2026-09");
+        assert_eq!(usage_month_prefix("2026-09"), "2026-09");
+        // Never panics on a short or odd value.
+        assert_eq!(usage_month_prefix("bad"), "bad");
     }
 
     #[test]

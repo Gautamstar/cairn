@@ -97,6 +97,9 @@ resource "aws_apigatewayv2_route" "account" {
     "POST /api/sites",
     "PATCH /api/sites/{site}",
     "DELETE /api/sites/{site}",
+    "GET /api/billing/summary",
+    "POST /api/billing/checkout",
+    "POST /api/billing/webhook",
   ])
 
   api_id    = aws_apigatewayv2_api.cairn.id

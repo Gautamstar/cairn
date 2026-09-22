@@ -23,11 +23,11 @@ use std::collections::{BTreeMap, HashMap};
 
 use aws_config::BehaviorVersion;
 use aws_sdk_dynamodb::types::AttributeValue;
+use cairn_core::account::{Email, Plan, SessionToken};
 use cairn_core::aggregate::{self, Dimension};
 use lambda_http::{Body, Error, Request, RequestExt, Response, run, service_fn};
 use serde::Serialize;
 use std::sync::Arc;
-use cairn_core::account::{Email, SessionToken};
 use time::{Duration, OffsetDateTime};
 
 /// Entries returned per ranked panel.
@@ -156,7 +156,11 @@ async fn handle(app: Arc<App>, request: Request) -> Result<Response<Body>, Error
         .clamp(1, MAX_DAYS);
 
     match authorize(&app, &site, &request).await? {
-        Access::Granted { cacheable } => {
+        Access::Granted { cacheable, owner } => {
+            // The owner's plan decides how far back anyone may look, including
+            // strangers reading a public site: sharing a dashboard does not
+            // widen its window.
+            let days = days.min(owner_plan(&app, &owner).await?.retention_days());
             let stats = collect(&app, &site, days, OffsetDateTime::now_utc()).await?;
             Ok(stats_response(&stats, cacheable))
         }
@@ -177,6 +181,8 @@ enum Access {
         /// cache them. A private site's answer depends on the caller's cookie
         /// and must never be stored in a shared cache.
         cacheable: bool,
+        /// Whose plan governs this site.
+        owner: String,
     },
     Denied,
 }
@@ -204,30 +210,64 @@ async fn authorize(app: &App, site: &str, request: &Request) -> Result<Access, E
         .and_then(|value| value.as_bool().ok())
         .copied()
         .unwrap_or(false);
-    if public {
-        return Ok(Access::Granted { cacheable: true });
-    }
-
     let owner = item
         .get("owner")
         .and_then(|value| value.as_s().ok())
         .cloned()
         .unwrap_or_default();
 
+    if public {
+        return Ok(Access::Granted {
+            cacheable: true,
+            owner,
+        });
+    }
+
     let Some(email) = session_email(app, request).await? else {
         return Ok(Access::Denied);
     };
 
     if email.as_str() == owner {
-        Ok(Access::Granted { cacheable: false })
+        Ok(Access::Granted {
+            cacheable: false,
+            owner,
+        })
     } else {
         Ok(Access::Denied)
     }
 }
 
+/// The plan of the account that owns a site. Free if the profile is missing
+/// or unreadable: an error in the lookup must not widen anyone's window.
+async fn owner_plan(app: &App, owner: &str) -> Result<Plan, Error> {
+    let Ok(email) = Email::parse(owner) else {
+        return Ok(Plan::Free);
+    };
+    let found = app
+        .dynamo
+        .get_item()
+        .table_name(&app.table)
+        .key("pk", AttributeValue::S(email.pk()))
+        .key("sk", AttributeValue::S("PROFILE".into()))
+        .projection_expression("#plan")
+        .expression_attribute_names("#plan", "plan")
+        .send()
+        .await?;
+    Ok(found
+        .item()
+        .and_then(|item| item.get("plan"))
+        .and_then(|value| value.as_s().ok())
+        .map(|name| Plan::parse(name))
+        .unwrap_or(Plan::Free))
+}
+
 /// The account behind this request's session cookie, if it has a live one.
 async fn session_email(app: &App, request: &Request) -> Result<Option<Email>, Error> {
-    let Some(header) = request.headers().get("cookie").and_then(|v| v.to_str().ok()) else {
+    let Some(header) = request
+        .headers()
+        .get("cookie")
+        .and_then(|v| v.to_str().ok())
+    else {
         return Ok(None);
     };
     let Some(presented) = cairn_core::account::cookie_value(header, SESSION_COOKIE) else {

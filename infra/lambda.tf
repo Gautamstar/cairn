@@ -31,8 +31,14 @@ locals {
       memory  = 512
       timeout = 10
       env = {
-        CAIRN_TABLE         = aws_dynamodb_table.cairn.name
-        CAIRN_ORIGIN_SECRET = random_password.origin_secret.result
+        CAIRN_TABLE                  = aws_dynamodb_table.cairn.name
+        CAIRN_ORIGIN_SECRET          = random_password.origin_secret.result
+        CAIRN_STRIPE_WEBHOOK_SECRET  = var.stripe_webhook_secret
+        CAIRN_STRIPE_STARTER_URL     = var.stripe_starter_url
+        CAIRN_STRIPE_STARTER_LINK_ID = var.stripe_starter_link_id
+        CAIRN_STRIPE_PRO_URL         = var.stripe_pro_url
+        CAIRN_STRIPE_PRO_LINK_ID     = var.stripe_pro_link_id
+        CAIRN_STRIPE_PORTAL_URL      = var.stripe_portal_url
       }
     }
 

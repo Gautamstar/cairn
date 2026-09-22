@@ -60,3 +60,65 @@ variable "table_capacity" {
   type        = number
   default     = 5
 }
+
+# ---------------------------------------------------------------------------
+# Billing. All empty by default, which leaves billing switched off: every
+# account is on the free plan and the upgrade routes answer 503. Nothing else
+# depends on these being set.
+# ---------------------------------------------------------------------------
+
+variable "stripe_webhook_secret" {
+  description = <<-EOT
+    Signing secret of the Stripe webhook endpoint (starts `whsec_`). Stripe
+    shows it once, on the endpoint's page, after you add
+    https://<distribution>/api/billing/webhook listening for
+    `checkout.session.completed` and `customer.subscription.deleted`.
+
+    Marked sensitive, but it still lands in Terraform state and the Lambda's
+    configuration. It can only prove requests came from Stripe; it cannot move
+    money. Move it to SSM beside the visitor salt if that trade stops being
+    acceptable.
+  EOT
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "stripe_starter_url" {
+  description = "Starter Payment Link URL, e.g. https://buy.stripe.com/abc123."
+  type        = string
+  default     = ""
+}
+
+variable "stripe_starter_link_id" {
+  description = <<-EOT
+    Starter Payment Link id (starts `plink_`), from the link's page in the
+    Stripe dashboard. The plan is decided by this id in the webhook, never by
+    anything in the URL the customer followed, which they could edit.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "stripe_pro_url" {
+  description = "Pro Payment Link URL."
+  type        = string
+  default     = ""
+}
+
+variable "stripe_pro_link_id" {
+  description = "Pro Payment Link id (starts `plink_`)."
+  type        = string
+  default     = ""
+}
+
+variable "stripe_portal_url" {
+  description = <<-EOT
+    Customer Portal login link (Stripe dashboard, Settings, Billing, Customer
+    portal). Paying customers get a "Manage billing" link to it for cancelling
+    and updating their card. Turn plan switching off in the portal settings:
+    a switch there changes the Stripe subscription without telling Cairn.
+  EOT
+  type        = string
+  default     = ""
+}
