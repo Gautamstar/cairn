@@ -121,8 +121,11 @@ Three things change behaviour, in the order they bite:
    want them to stay world-readable as they were.
 2. **`CAIRN_SITES` is now optional** and acts as a seed list for sites that
    predate the registry. It can stay as it is.
-3. **The table moves to on-demand billing.** Provisioned capacity is a fixed
-   cost that neither drops on a quiet week nor rises when someone signs up.
+
+The table stays on provisioned capacity. The perpetual DynamoDB free tier
+covers provisioned throughput only, and five units each way is room for a few
+hundred thousand writes a day. `table_capacity` can rise to 25 before it costs
+anything; revisit on-demand only once sustained traffic passes that.
 
 The CloudFront changes matter as much as the code: the `cairn_session` cookie is
 forwarded to the query handler and included in its cache key, and `/api/auth/*`
