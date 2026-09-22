@@ -508,6 +508,9 @@
       <input id="gate-password" type="password" autocomplete="current-password" required minlength="10">
       <button class="primary" type="submit" id="gate-submit">Sign in</button>
     </form>
+    <p class="gate-switch" id="gate-cancel-row" hidden>
+      <button type="button" id="gate-cancel">Back to the public dashboard</button>
+    </p>
     <p class="gate-switch" id="gate-switch">
       <span id="gate-switch-text">No account yet?</span>
       <button type="button" id="gate-switch-btn">Create one</button>
@@ -538,6 +541,7 @@
         <span id="whoami-email"></span>
         <button type="button" id="manage-sites">Sites</button>
         <button type="button" id="sign-out">Sign out</button>
+        <button type="button" id="sign-in" hidden>Sign in</button>
       </div>
     </div>
   </header>
@@ -838,6 +842,11 @@
     state.email = email;
     $('gate').hidden = true;
     $('whoami-email').textContent = email;
+    // Undo the public view's controls if this sign-in started from one.
+    $('manage-sites').hidden = false;
+    $('sign-out').hidden = false;
+    $('sign-in').hidden = true;
+    $('gate-cancel-row').hidden = true;
     loadSites();
     loadPlan();
 
@@ -912,10 +921,49 @@
     });
   }
 
+  /// A read-only view of one public site, for visitors who are not signed in.
+  ///
+  /// "Public" has to mean the dashboard, not just the API behind it: a site
+  /// shared from a portfolio or a README is shared so people can look at it.
+  function startPublic(site) {
+    state.site = site;
+    $('gate').hidden = true;
+    $('whoami-email').textContent = 'Public dashboard';
+    $('manage-sites').hidden = true;
+    $('sign-out').hidden = true;
+    $('sign-in').hidden = false;
+
+    var select = $('site');
+    select.textContent = '';
+    var option = document.createElement('option');
+    option.value = option.textContent = site;
+    select.appendChild(option);
+
+    load();
+  }
+
+  $('sign-in').addEventListener('click', function () {
+    $('gate-cancel-row').hidden = false;
+    $('gate').hidden = false;
+  });
+
+  $('gate-cancel').addEventListener('click', function () {
+    $('gate').hidden = true;
+  });
+
   // The gate is in the markup already shown, so nothing behind it is ever
-  // visible to someone who turns out not to be signed in.
+  // visible to someone who turns out not to be signed in. A signed-out visitor
+  // who asked for a specific site gets it only if the API agrees it is public;
+  // the check is the same one that guards the numbers, not a separate flag.
   api('GET', '/api/auth/me').then(function (res) {
-    if (res.ok && res.body.email) start(res.body.email);
+    if (res.ok && res.body.email) {
+      start(res.body.email);
+      return;
+    }
+    if (!requested) return;
+    fetch(API + '/api/stats/' + encodeURIComponent(requested) + '?days=1', { cache: 'no-store' })
+      .then(function (r) { if (r.ok) startPublic(requested); })
+      .catch(function () {});
   });
 
   document.querySelectorAll('.range button').forEach(function (b) {
