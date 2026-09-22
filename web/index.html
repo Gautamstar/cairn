@@ -310,7 +310,11 @@
     z-index: 50;
     padding: 24px;
   }
-  #gate[hidden] { display: none; }
+  /* Any rule that sets display beats the UA stylesheet's [hidden] rule, so
+     without this an element with a display class ignores `hidden` and shows
+     anyway. The snippet box did: an empty bordered strip under the add-site
+     form until a site was added. */
+  [hidden] { display: none !important; }
 
   .gate-card {
     width: 100%;
