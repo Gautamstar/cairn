@@ -23,11 +23,11 @@ use std::collections::{BTreeMap, HashMap};
 
 use aws_config::BehaviorVersion;
 use aws_sdk_dynamodb::types::AttributeValue;
+use cairn_core::account::{Email, SessionToken};
 use cairn_core::aggregate::{self, Dimension};
 use lambda_http::{Body, Error, Request, RequestExt, Response, run, service_fn};
 use serde::Serialize;
 use std::sync::Arc;
-use cairn_core::account::{Email, SessionToken};
 use time::{Duration, OffsetDateTime};
 
 /// Entries returned per ranked panel.
@@ -227,7 +227,11 @@ async fn authorize(app: &App, site: &str, request: &Request) -> Result<Access, E
 
 /// The account behind this request's session cookie, if it has a live one.
 async fn session_email(app: &App, request: &Request) -> Result<Option<Email>, Error> {
-    let Some(header) = request.headers().get("cookie").and_then(|v| v.to_str().ok()) else {
+    let Some(header) = request
+        .headers()
+        .get("cookie")
+        .and_then(|v| v.to_str().ok())
+    else {
         return Ok(None);
     };
     let Some(presented) = cairn_core::account::cookie_value(header, SESSION_COOKIE) else {

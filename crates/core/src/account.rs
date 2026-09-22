@@ -26,8 +26,8 @@
 
 use std::fmt;
 
-use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
+use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 
 /// Upper bound on a site identifier. Shorter than [`crate::event::MAX_SITE_LEN`]
 /// because a registered site is typed by a human, not accepted from a payload.
@@ -277,7 +277,11 @@ mod tests {
     #[test]
     fn email_rejects_rubbish() {
         for bad in ["", "nope", "a@b", "a b@c.com", "a@b.com#x", "@b.com", "a@"] {
-            assert_eq!(Email::parse(bad), Err(AccountError::EmailInvalid), "{bad:?}");
+            assert_eq!(
+                Email::parse(bad),
+                Err(AccountError::EmailInvalid),
+                "{bad:?}"
+            );
         }
     }
 
@@ -293,8 +297,21 @@ mod tests {
     /// site's partition could be spelled more than one way.
     #[test]
     fn site_id_cannot_contain_a_key_delimiter() {
-        for bad in ["a#b", "", "-lead", "trail-", ".lead", "a..b", "has space", "up/down"] {
-            assert_eq!(SiteId::parse(bad), Err(AccountError::SiteIdInvalid), "{bad:?}");
+        for bad in [
+            "a#b",
+            "",
+            "-lead",
+            "trail-",
+            ".lead",
+            "a..b",
+            "has space",
+            "up/down",
+        ] {
+            assert_eq!(
+                SiteId::parse(bad),
+                Err(AccountError::SiteIdInvalid),
+                "{bad:?}"
+            );
         }
         assert!(SiteId::parse(&"a".repeat(MAX_SITE_ID_LEN)).is_ok());
         assert!(SiteId::parse(&"a".repeat(MAX_SITE_ID_LEN + 1)).is_err());
@@ -336,9 +353,15 @@ mod tests {
     fn only_the_token_hash_is_storable() {
         let token = SessionToken::from_entropy(&[9; 32]);
         assert_ne!(token.plaintext(), token.hash());
-        assert_eq!(SessionToken::hash_presented(token.plaintext()), token.hash());
+        assert_eq!(
+            SessionToken::hash_presented(token.plaintext()),
+            token.hash()
+        );
         assert_eq!(token.plaintext().len(), 64);
-        assert_eq!(SessionToken::pk(token.hash()), format!("T#{}", token.hash()));
+        assert_eq!(
+            SessionToken::pk(token.hash()),
+            format!("T#{}", token.hash())
+        );
     }
 
     #[test]
@@ -351,7 +374,10 @@ mod tests {
     fn a_cookie_header_yields_one_value() {
         let header = "other=1; cairn_session=abc123; last=2";
         assert_eq!(cookie_value(header, "cairn_session"), Some("abc123"));
-        assert_eq!(cookie_value("cairn_session=solo", "cairn_session"), Some("solo"));
+        assert_eq!(
+            cookie_value("cairn_session=solo", "cairn_session"),
+            Some("solo")
+        );
         assert_eq!(cookie_value(header, "absent"), None);
         assert_eq!(cookie_value("", "cairn_session"), None);
         // A cookie whose name merely ends with ours is a different cookie.

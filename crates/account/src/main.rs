@@ -21,10 +21,10 @@
 use std::sync::Arc;
 
 use aws_config::BehaviorVersion;
-use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_dynamodb::operation::put_item::PutItemError;
-use cairn_core::account::{self, AccountError, Email, SessionToken, SiteId, SESSION_DAYS};
-use lambda_http::{run, service_fn, Body, Error, Request, Response};
+use aws_sdk_dynamodb::types::AttributeValue;
+use cairn_core::account::{self, AccountError, Email, SESSION_DAYS, SessionToken, SiteId};
+use lambda_http::{Body, Error, Request, Response, run, service_fn};
 use rand::RngCore;
 use serde::Deserialize;
 use time::OffsetDateTime;
@@ -399,10 +399,7 @@ async fn claim_site(app: &App, request: &Request) -> Result<Response<Body>, Erro
         .key("sk", AttributeValue::S(account::REGISTRY_SK.into()))
         .update_expression("ADD #sites :site")
         .expression_attribute_names("#sites", "sites")
-        .expression_attribute_values(
-            ":site",
-            AttributeValue::Ss(vec![site.as_str().to_string()]),
-        )
+        .expression_attribute_values(":site", AttributeValue::Ss(vec![site.as_str().to_string()]))
         .send()
         .await?;
 
@@ -416,11 +413,7 @@ async fn claim_site(app: &App, request: &Request) -> Result<Response<Body>, Erro
     ))
 }
 
-async fn set_visibility(
-    app: &App,
-    request: &Request,
-    path: &str,
-) -> Result<Response<Body>, Error> {
+async fn set_visibility(app: &App, request: &Request, path: &str) -> Result<Response<Body>, Error> {
     let Some(email) = session_email(app, request).await? else {
         return Ok(error(401, "not signed in"));
     };
@@ -488,10 +481,7 @@ async fn release_site(app: &App, request: &Request, path: &str) -> Result<Respon
         .key("sk", AttributeValue::S(account::REGISTRY_SK.into()))
         .update_expression("DELETE #sites :site")
         .expression_attribute_names("#sites", "sites")
-        .expression_attribute_values(
-            ":site",
-            AttributeValue::Ss(vec![site.as_str().to_string()]),
-        )
+        .expression_attribute_values(":site", AttributeValue::Ss(vec![site.as_str().to_string()]))
         .send()
         .await?;
 
@@ -543,7 +533,11 @@ fn cookie_value(request: &Request, name: &str) -> Option<String> {
     account::cookie_value(header, name).map(str::to_owned)
 }
 
-fn with_session_cookie(app: &App, mut response: Response<Body>, token: &SessionToken) -> Response<Body> {
+fn with_session_cookie(
+    app: &App,
+    mut response: Response<Body>,
+    token: &SessionToken,
+) -> Response<Body> {
     // HttpOnly so a cross-site script cannot read it; SameSite=Lax so it is
     // not sent on a cross-site POST; Secure everywhere but local testing.
     let cookie = format!(
