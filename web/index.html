@@ -298,9 +298,194 @@
     padding: 0; margin: -1px; overflow: hidden;
     clip: rect(0,0,0,0); white-space: nowrap; border: 0;
   }
+
+  /* ---------- accounts ---------- */
+
+  #gate {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: var(--plane);
+    z-index: 50;
+    padding: 24px;
+  }
+  /* Any rule that sets display beats the UA stylesheet's [hidden] rule, so
+     without this an element with a display class ignores `hidden` and shows
+     anyway. The snippet box did: an empty bordered strip under the add-site
+     form until a site was added. */
+  [hidden] { display: none !important; }
+
+  .gate-card {
+    width: 100%;
+    max-width: 380px;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    padding: 28px;
+  }
+  .gate-card h2 { margin: 0 0 6px; font-size: 20px; }
+  .gate-card p.sub { margin: 0 0 20px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  .gate-card label { display: block; font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
+  .gate-card input {
+    width: 100%;
+    background: var(--plane);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    color: var(--ink);
+    padding: 10px 11px;
+    font: inherit;
+    font-size: 14px;
+    margin-bottom: 14px;
+  }
+  .gate-card input:focus { outline: 2px solid var(--visitors); outline-offset: 1px; }
+
+  button.primary {
+    width: 100%;
+    background: var(--visitors);
+    color: #fff;
+    border: 0;
+    border-radius: 6px;
+    padding: 11px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.primary:hover { filter: brightness(1.1); }
+  button.primary:disabled { opacity: .5; cursor: progress; }
+
+  .gate-switch {
+    margin-top: 16px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .gate-switch button {
+    background: none;
+    border: 0;
+    color: var(--visitors);
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+    text-decoration: underline;
+  }
+
+  .notice {
+    font-size: 13px;
+    padding: 9px 11px;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    border: 1px solid var(--hairline);
+  }
+  .notice.bad { color: var(--views); border-color: var(--views); }
+  .notice.good { color: var(--visitors); border-color: var(--visitors); }
+
+  .whoami {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .whoami button {
+    background: none;
+    border: 1px solid var(--hairline);
+    border-radius: 5px;
+    color: var(--ink-2);
+    font: inherit;
+    font-size: 12px;
+    padding: 5px 9px;
+    cursor: pointer;
+  }
+  .whoami button:hover { color: var(--ink); border-color: var(--ink-2); }
+
+  #sites-card {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 22px;
+  }
+  #sites-card h2 { margin: 0 0 4px; font-size: 15px; }
+  #sites-card p.sub { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+  .site-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-top: 1px solid var(--hairline);
+    flex-wrap: wrap;
+  }
+  .site-row .name { font-weight: 600; font-size: 14px; }
+  .site-row .spacer { flex: 1 1 auto; }
+  .site-row label { font-size: 12px; color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; }
+  .site-row button.link {
+    background: none; border: 0; color: var(--muted); cursor: pointer;
+    font: inherit; font-size: 12px; text-decoration: underline; padding: 0;
+  }
+  .site-row button.link:hover { color: var(--views); }
+  .add-site { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .add-site input {
+    flex: 1 1 200px;
+    background: var(--plane);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    color: var(--ink);
+    padding: 9px 11px;
+    font: inherit;
+    font-size: 14px;
+  }
+  .add-site button {
+    background: var(--raised);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+    padding: 9px 16px;
+    cursor: pointer;
+  }
+  .add-site button:hover { border-color: var(--ink-2); }
+  code.snippet {
+    display: block;
+    background: var(--plane);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--ink-2);
+    margin-top: 10px;
+    overflow-x: auto;
+    white-space: pre;
+  }
 </style>
 </head>
 <body>
+
+<!-- Shown until /api/auth/me says who this is. Stats are no longer public by
+     default, so there is nothing useful to render before then. -->
+<div id="gate">
+  <div class="gate-card">
+    <h2 id="gate-title">Sign in to Cairn</h2>
+    <p class="sub" id="gate-sub">Your sites' statistics are private to your account.</p>
+    <div id="gate-notice" class="notice bad" hidden></div>
+    <form id="gate-form">
+      <label for="gate-email">Email</label>
+      <input id="gate-email" type="email" autocomplete="email" required>
+      <label for="gate-password">Password</label>
+      <input id="gate-password" type="password" autocomplete="current-password" required minlength="10">
+      <button class="primary" type="submit" id="gate-submit">Sign in</button>
+    </form>
+    <p class="gate-switch" id="gate-cancel-row" hidden>
+      <button type="button" id="gate-cancel">Back to the public dashboard</button>
+    </p>
+    <p class="gate-switch" id="gate-switch">
+      <span id="gate-switch-text">No account yet?</span>
+      <button type="button" id="gate-switch-btn">Create one</button>
+    </p>
+  </div>
+</div>
+
 <div class="wrap">
 
   <header>
@@ -318,8 +503,27 @@
         <button data-days="7" aria-pressed="true">7d</button>
         <button data-days="30">30d</button>
       </div>
+
+      <div class="whoami">
+        <span id="whoami-email"></span>
+        <button type="button" id="manage-sites">Sites</button>
+        <button type="button" id="sign-out">Sign out</button>
+        <button type="button" id="sign-in" hidden>Sign in</button>
+      </div>
     </div>
   </header>
+
+  <div id="sites-card" hidden>
+    <h2>Your sites</h2>
+    <p class="sub">Each site is private until you share it. Paste the snippet into the page's <code>&lt;head&gt;</code>.</p>
+    <div id="sites-list"></div>
+    <form class="add-site" id="add-site-form">
+      <input id="add-site-input" placeholder="example.com" aria-label="New site id" required>
+      <button type="submit">Add site</button>
+    </form>
+    <div id="add-site-notice" class="notice bad" hidden></div>
+    <code class="snippet" id="add-site-snippet" hidden></code>
+  </div>
 
   <div id="status"></div>
 
@@ -373,10 +577,10 @@
 (function () {
   'use strict';
 
-  // Must match the `sites` variable in infra/variables.tf. A site sending
-  // events that is not listed there still records raw rows, but the rollup
-  // never aggregates them, so it shows as empty rather than missing.
-  var SITES = ['portfolio', 'fitmit', 'edaproj'];
+  // Sites come from the signed-in account now, not a list baked into this
+  // file. Registering one adds it to the registry the rollup reads, so a new
+  // site starts aggregating without a deploy.
+  var SITES = [];
 
   var PANELS = [
     ['pages', 'Top pages'],
@@ -388,7 +592,7 @@
     ['events', 'Custom events']
   ];
 
-  var state = { site: SITES[0], days: 7, data: null, table: false };
+  var state = { site: null, days: 7, data: null, table: false, email: null, sites: [] };
 
   // In production the dashboard is served from the same distribution as the
   // API, so a relative path is correct and no configuration exists to get
@@ -408,19 +612,240 @@
 
   var params = new URLSearchParams(location.search);
   var requested = params.get('site');
-  if (requested && SITES.indexOf(requested) === -1) SITES.push(requested);
-  if (requested) state.site = requested;
-
-  SITES.forEach(function (s) {
-    var o = document.createElement('option');
-    o.value = o.textContent = s;
-    if (s === state.site) o.selected = true;
-    $('site').appendChild(o);
-  });
 
   $('site').addEventListener('change', function (e) {
     state.site = e.target.value;
     load();
+  });
+
+  // ---------- accounts ----------
+
+  // Every account call carries the session cookie and must never be read from
+  // a cache, since the answer depends on who is asking.
+  function api(method, path, payload) {
+    var options = { method: method, credentials: 'same-origin', cache: 'no-store' };
+    if (payload !== undefined) {
+      options.headers = { 'content-type': 'application/json' };
+      options.body = JSON.stringify(payload);
+    }
+    return fetch(API + path, options).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (body) {
+        return { ok: r.ok, status: r.status, body: body };
+      });
+    });
+  }
+
+  function notice(id, message, good) {
+    var el = $(id);
+    if (!message) { el.hidden = true; return; }
+    el.textContent = message;
+    el.className = 'notice ' + (good ? 'good' : 'bad');
+    el.hidden = false;
+  }
+
+  var signingUp = false;
+
+  $('gate-switch-btn').addEventListener('click', function () {
+    signingUp = !signingUp;
+    $('gate-title').textContent = signingUp ? 'Create your account' : 'Sign in to Cairn';
+    $('gate-sub').textContent = signingUp
+      ? 'Ten characters or more. There is no password reset yet, so pick something you keep.'
+      : "Your sites' statistics are private to your account.";
+    $('gate-submit').textContent = signingUp ? 'Create account' : 'Sign in';
+    $('gate-switch-text').textContent = signingUp ? 'Already have one?' : 'No account yet?';
+    $('gate-switch-btn').textContent = signingUp ? 'Sign in' : 'Create one';
+    $('gate-password').setAttribute('autocomplete', signingUp ? 'new-password' : 'current-password');
+    notice('gate-notice', '');
+  });
+
+  $('gate-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var submit = $('gate-submit');
+    submit.disabled = true;
+    notice('gate-notice', '');
+
+    api('POST', signingUp ? '/api/auth/signup' : '/api/auth/login', {
+      email: $('gate-email').value,
+      password: $('gate-password').value
+    }).then(function (res) {
+      submit.disabled = false;
+      if (!res.ok) {
+        notice('gate-notice', res.body.error || 'That did not work.');
+        return;
+      }
+      $('gate-password').value = '';
+      start(res.body.email);
+    }).catch(function () {
+      submit.disabled = false;
+      notice('gate-notice', 'Could not reach the server.');
+    });
+  });
+
+  $('sign-out').addEventListener('click', function () {
+    api('POST', '/api/auth/logout').then(function () { location.reload(); });
+  });
+
+  $('manage-sites').addEventListener('click', function () {
+    $('sites-card').hidden = !$('sites-card').hidden;
+  });
+
+  $('add-site-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var value = $('add-site-input').value.trim();
+    if (!value) return;
+    notice('add-site-notice', '');
+    api('POST', '/api/sites', { site: value }).then(function (res) {
+      if (!res.ok) {
+        notice('add-site-notice', res.body.error || 'Could not add that site.');
+        return;
+      }
+      $('add-site-input').value = '';
+      $('add-site-snippet').textContent = res.body.snippet;
+      $('add-site-snippet').hidden = false;
+      notice('add-site-notice', 'Added. Paste the snippet below into that site.', true);
+      loadSites(res.body.site);
+    });
+  });
+
+  function renderSites() {
+    var list = $('sites-list');
+    list.textContent = '';
+
+    if (!state.sites.length) {
+      var empty = document.createElement('p');
+      empty.className = 'sub';
+      empty.textContent = 'No sites yet. Add one below to get a snippet.';
+      list.appendChild(empty);
+      return;
+    }
+
+    state.sites.forEach(function (entry) {
+      var row = document.createElement('div');
+      row.className = 'site-row';
+
+      var name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = entry.site;
+      row.appendChild(name);
+
+      var spacer = document.createElement('span');
+      spacer.className = 'spacer';
+      row.appendChild(spacer);
+
+      var shareLabel = document.createElement('label');
+      var share = document.createElement('input');
+      share.type = 'checkbox';
+      share.checked = !!entry.public;
+      share.addEventListener('change', function () {
+        api('PATCH', '/api/sites/' + encodeURIComponent(entry.site), { public: share.checked })
+          .then(function (res) {
+            if (!res.ok) { share.checked = !share.checked; }
+            else { entry.public = share.checked; }
+          });
+      });
+      shareLabel.appendChild(share);
+      shareLabel.appendChild(document.createTextNode('Public'));
+      row.appendChild(shareLabel);
+
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'link';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', function () {
+        if (!confirm('Stop tracking ' + entry.site + '? The site id becomes free for anyone to claim.')) return;
+        api('DELETE', '/api/sites/' + encodeURIComponent(entry.site)).then(function () { loadSites(); });
+      });
+      row.appendChild(remove);
+
+      list.appendChild(row);
+    });
+  }
+
+  function loadSites(prefer) {
+    return api('GET', '/api/sites').then(function (res) {
+      state.sites = (res.body && res.body.sites) || [];
+      SITES = state.sites.map(function (entry) { return entry.site; });
+      renderSites();
+
+      var wanted = prefer || requested || state.site || SITES[0];
+      if (SITES.indexOf(wanted) === -1) wanted = SITES[0];
+      state.site = wanted || null;
+
+      var select = $('site');
+      select.textContent = '';
+      SITES.forEach(function (name) {
+        var option = document.createElement('option');
+        option.value = option.textContent = name;
+        if (name === state.site) option.selected = true;
+        select.appendChild(option);
+      });
+
+      if (state.site) {
+        load();
+      } else {
+        // No sites yet: open the manager rather than showing an empty chart.
+        $('sites-card').hidden = false;
+        setStatus('Add a site to start collecting.');
+      }
+    });
+  }
+
+  /// Hand over to the dashboard once we know who is signed in.
+  function start(email) {
+    state.email = email;
+    $('gate').hidden = true;
+    $('whoami-email').textContent = email;
+    // Undo the public view's controls if this sign-in started from one.
+    $('manage-sites').hidden = false;
+    $('sign-out').hidden = false;
+    $('sign-in').hidden = true;
+    $('gate-cancel-row').hidden = true;
+    loadSites();
+  }
+
+  /// A read-only view of one public site, for visitors who are not signed in.
+  ///
+  /// "Public" has to mean the dashboard, not just the API behind it: a site
+  /// shared from a portfolio or a README is shared so people can look at it.
+  function startPublic(site) {
+    state.site = site;
+    $('gate').hidden = true;
+    $('whoami-email').textContent = 'Public dashboard';
+    $('manage-sites').hidden = true;
+    $('sign-out').hidden = true;
+    $('sign-in').hidden = false;
+
+    var select = $('site');
+    select.textContent = '';
+    var option = document.createElement('option');
+    option.value = option.textContent = site;
+    select.appendChild(option);
+
+    load();
+  }
+
+  $('sign-in').addEventListener('click', function () {
+    $('gate-cancel-row').hidden = false;
+    $('gate').hidden = false;
+  });
+
+  $('gate-cancel').addEventListener('click', function () {
+    $('gate').hidden = true;
+  });
+
+  // The gate is in the markup already shown, so nothing behind it is ever
+  // visible to someone who turns out not to be signed in. A signed-out visitor
+  // who asked for a specific site gets it only if the API agrees it is public;
+  // the check is the same one that guards the numbers, not a separate flag.
+  api('GET', '/api/auth/me').then(function (res) {
+    if (res.ok && res.body.email) {
+      start(res.body.email);
+      return;
+    }
+    if (!requested) return;
+    fetch(API + '/api/stats/' + encodeURIComponent(requested) + '?days=1', { cache: 'no-store' })
+      .then(function (r) { if (r.ok) startPublic(requested); })
+      .catch(function () {});
   });
 
   document.querySelectorAll('.range button').forEach(function (b) {
@@ -648,9 +1073,14 @@
     });
   }
 
-  load();
+  // No boot-time load(): the first fetch happens in loadSites(), once we know
+  // who is signed in and which sites they own. Calling it here fired a request
+  // for /api/stats/null on every page load, before the gate had even resolved.
+  //
   // The live count is the only figure that goes stale while you watch it.
-  setInterval(load, 60000);
+  setInterval(function () {
+    if (state.site) load();
+  }, 60000);
 })();
 </script>
 </body>

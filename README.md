@@ -68,6 +68,71 @@ Steady-state cost is $0/month. Lambda, DynamoDB, and CloudFront all sit inside
 perpetual free tiers; API Gateway is free for twelve months and roughly a cent a
 month after.
 
+## Accounts and sites
+
+Statistics used to be readable by anyone who knew a site id, which was a
+deliberate choice while every site belonged to one person. Sites are now owned,
+**private by default**, and public only when their owner says so.
+
+```text
+POST   /api/auth/signup      {email, password}   sets a session cookie
+POST   /api/auth/login       {email, password}
+POST   /api/auth/logout
+GET    /api/auth/me
+GET    /api/sites                                sites you own
+POST   /api/sites            {site}              claim one, returns the snippet
+PATCH  /api/sites/{site}     {public: bool}       share or unshare
+DELETE /api/sites/{site}
+```
+
+Sign in at the dashboard, add a site, and paste the snippet it hands back. That
+is the whole flow; there is no separate admin surface.
+
+**Passwords, not magic links.** A link would be nicer and would mean storing no
+password at all, but it needs SES, a verified domain, and a production-access
+request before a single customer can sign up. Argon2 and a cookie need nothing
+that is not already deployed. There is no password reset yet, which is
+survivable at this size and is the first thing to add if it stops being so.
+
+**Sessions are stored hashed.** The browser gets 32 random bytes as hex; the
+table gets a BLAKE3 hash of them under `T#`, with the same `ttl` attribute the
+raw events use, so expiry is DynamoDB's job. A dump of the table cannot be
+replayed as a login.
+
+**Ingest is untouched.** Adding an ownership lookup to `POST /e` would double
+the one DynamoDB round trip the visitor waits on, to reject events that are
+already harmless: an unregistered site's rows are unreadable and expire in a
+week. Enforcement belongs at read time, and it is there.
+
+**The rollup discovers sites at run time.** Claiming a site adds it to one
+string set at `REGISTRY/SITES`, which the rollup reads before each run and
+unions with `CAIRN_SITES`. A new customer is aggregated on the next hourly run
+without a Terraform apply. Finding `S#` rows any other way would mean scanning a
+table that is almost entirely events.
+
+### Upgrading an existing deployment
+
+Three things change behaviour, in the order they bite:
+
+1. **Register your existing sites, or their dashboards go dark.** An
+   unregistered site is denied rather than public — defaulting the other way
+   would leave every future customer's data readable until they noticed. Sign
+   up, then add `portfolio`, `fitmit` and `edaproj`. Mark them public if you
+   want them to stay world-readable as they were.
+2. **`CAIRN_SITES` is now optional** and acts as a seed list for sites that
+   predate the registry. It can stay as it is.
+
+The table stays on provisioned capacity. The perpetual DynamoDB free tier
+covers provisioned throughput only, and five units each way is room for a few
+hundred thousand writes a day. `table_capacity` can rise to 25 before it costs
+anything; revisit on-demand only once sustained traffic passes that.
+
+The CloudFront changes matter as much as the code: the `cairn_session` cookie is
+forwarded to the query handler and included in its cache key, and `/api/auth/*`
+and `/api/sites*` get their own behaviours because `/api/*` allows only GET,
+HEAD and OPTIONS. Without those, authorization compiles and then denies
+everything, and signup returns 403 from the CDN.
+
 ## Privacy model
 
 `visitor_id = BLAKE3(daily_salt, site ‖ ip ‖ user_agent)`, truncated, where
@@ -102,6 +167,7 @@ itself as desktop Safari, which no user-agent parser can detect.
 
 ```
 crates/core      domain logic: events, hashing, bot filter, UA, normalisation
+crates/account   accounts, sessions, site ownership
 crates/ingest    POST /e
 crates/query     GET /api/stats/:site
 crates/rollup    scheduled aggregation

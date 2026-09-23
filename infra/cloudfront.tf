@@ -60,6 +60,36 @@ resource "aws_cloudfront_origin_request_policy" "ingest" {
   }
 }
 
+# Account traffic. A whitelist, like the policies above, and for a sharper
+# reason than tidiness: forwarding every viewer header would forward `Host`,
+# and API Gateway identifies the API by its Host header, so a request arriving
+# as `<distribution>.cloudfront.net` is refused with a 403 before any handler
+# runs. Only what the account handler reads is sent.
+resource "aws_cloudfront_origin_request_policy" "account" {
+  name    = "cairn-account"
+  comment = "Content type and the session cookie"
+
+  headers_config {
+    header_behavior = "whitelist"
+
+    headers {
+      items = ["content-type"]
+    }
+  }
+
+  cookies_config {
+    cookie_behavior = "whitelist"
+
+    cookies {
+      items = ["cairn_session"]
+    }
+  }
+
+  query_strings_config {
+    query_string_behavior = "none"
+  }
+}
+
 resource "aws_cloudfront_origin_request_policy" "query" {
   name    = "cairn-query"
   comment = "Nothing beyond the cache key, which already carries the day range"
@@ -68,8 +98,14 @@ resource "aws_cloudfront_origin_request_policy" "query" {
     header_behavior = "none"
   }
 
+  # The session cookie has to reach the handler or every private site is
+  # denied. Only this one cookie is forwarded, so an unrelated cookie on the
+  # domain cannot fragment the cache.
   cookies_config {
-    cookie_behavior = "none"
+    cookie_behavior = "whitelist"
+    cookies {
+      items = ["cairn_session"]
+    }
   }
 
   query_strings_config {
@@ -97,8 +133,14 @@ resource "aws_cloudfront_cache_policy" "stats" {
       header_behavior = "none"
     }
 
+    # In the cache key, not just forwarded: a private site's response depends
+    # on who asked. Anonymous readers of a public site still share one entry,
+    # because they send no cookie at all.
     cookies_config {
-      cookie_behavior = "none"
+      cookie_behavior = "whitelist"
+      cookies {
+        items = ["cairn_session"]
+      }
     }
 
     query_strings_config {
@@ -175,6 +217,32 @@ resource "aws_cloudfront_distribution" "cairn" {
 
     # The response is an empty 204. There is nothing to compress.
     compress = false
+  }
+
+  # Ahead of /api/* deliberately: CloudFront takes the first matching pattern,
+  # and these routes need POST, PATCH and DELETE, which /api/* does not allow.
+  ordered_cache_behavior {
+    path_pattern           = "/api/auth/*"
+    target_origin_id       = "api"
+    viewer_protocol_policy = "https-only"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods         = ["GET", "HEAD"]
+
+    cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
+    origin_request_policy_id = aws_cloudfront_origin_request_policy.account.id
+    compress                 = true
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/api/sites*"
+    target_origin_id       = "api"
+    viewer_protocol_policy = "https-only"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods         = ["GET", "HEAD"]
+
+    cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
+    origin_request_policy_id = aws_cloudfront_origin_request_policy.account.id
+    compress                 = true
   }
 
   ordered_cache_behavior {

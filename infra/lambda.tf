@@ -23,6 +23,19 @@ locals {
       }
     }
 
+    # Argon2 is deliberately expensive, and on Lambda CPU scales with memory,
+    # so more memory here makes a login finish sooner and can cost less in
+    # GB-seconds than the 128 MB floor would. Signups are rare; this is not on
+    # any hot path.
+    account = {
+      memory  = 512
+      timeout = 10
+      env = {
+        CAIRN_TABLE         = aws_dynamodb_table.cairn.name
+        CAIRN_ORIGIN_SECRET = random_password.origin_secret.result
+      }
+    }
+
     # Holds a HashSet of visitor IDs per dimension for a whole day, and walks 48
     # hour-partitions per run, so it gets both more memory and a much longer
     # timeout than the request handlers.

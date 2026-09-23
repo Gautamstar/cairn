@@ -54,19 +54,16 @@ impl App {
         let table = std::env::var("CAIRN_TABLE")
             .map_err(|_| "CAIRN_TABLE must be set to the DynamoDB table name")?;
 
-        // A static list rather than a registry table. One extra site is a
-        // Terraform variable change, and a lookup table would be infrastructure
-        // built for a multi-tenant product that does not exist yet.
+        // Seed list, for sites that predate the account system. Everything
+        // registered since is discovered from the registry at run time, so
+        // adding a customer does not mean a Terraform apply. Optional now: a
+        // fresh deployment has no grandfathered sites.
         let sites = std::env::var("CAIRN_SITES")
-            .map_err(|_| "CAIRN_SITES must be set to a comma-separated list of sites")?
+            .unwrap_or_default()
             .split(',')
             .map(|site| site.trim().to_string())
             .filter(|site| !site.is_empty())
             .collect::<Vec<_>>();
-
-        if sites.is_empty() {
-            return Err("CAIRN_SITES is set but contains no sites".into());
-        }
 
         Ok(Self {
             dynamo: aws_sdk_dynamodb::Client::new(&config),
@@ -268,10 +265,47 @@ async fn main() -> Result<(), Error> {
     .await
 }
 
+/// Every site this run should aggregate: the seed list plus the registry.
+///
+/// Deduplicated and sorted so a run is deterministic and a site that appears in
+/// both is not rolled up twice.
+async fn registered_sites(app: &App) -> Result<Vec<String>, Error> {
+    let found = app
+        .dynamo
+        .get_item()
+        .table_name(&app.table)
+        .key(
+            "pk",
+            aws_sdk_dynamodb::types::AttributeValue::S(cairn_core::account::REGISTRY_PK.into()),
+        )
+        .key(
+            "sk",
+            aws_sdk_dynamodb::types::AttributeValue::S(cairn_core::account::REGISTRY_SK.into()),
+        )
+        .send()
+        .await?;
+
+    let mut sites: Vec<String> = app.sites.clone();
+    if let Some(registered) = found
+        .item()
+        .and_then(|item| item.get("sites"))
+        .and_then(|value| value.as_ss().ok())
+    {
+        sites.extend(registered.iter().cloned());
+    }
+    sites.sort();
+    sites.dedup();
+    Ok(sites)
+}
+
 async fn handle(app: Arc<App>, event: LambdaEvent<RollupRequest>) -> Result<Summary, Error> {
     let (request, _context) = event.into_parts();
 
-    let sites = request.sites.unwrap_or_else(|| app.sites.clone());
+    // An explicit list in the request wins, so a replay can target one site.
+    let sites = match request.sites {
+        Some(requested) => requested,
+        None => registered_sites(&app).await?,
+    };
     let days = request
         .days
         .unwrap_or_else(|| default_days(OffsetDateTime::now_utc()));
