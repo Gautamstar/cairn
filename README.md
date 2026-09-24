@@ -80,7 +80,7 @@ POST   /api/auth/login       {email, password}
 POST   /api/auth/logout
 GET    /api/auth/me
 GET    /api/sites                                sites you own
-POST   /api/sites            {site}              claim one, returns the snippet
+POST   /api/sites            {site}              claim one
 PATCH  /api/sites/{site}     {public: bool}       share or unshare
 DELETE /api/sites/{site}
 ```
