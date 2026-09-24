@@ -419,6 +419,8 @@
   .site-row .name { font-weight: 600; font-size: 14px; }
   .site-row .spacer { flex: 1 1 auto; }
   .site-row label { font-size: 12px; color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; }
+  .site-row .visibility { font-size: 12px; color: var(--muted); min-width: 7.5em; }
+  .site-row .visibility.is-public { color: var(--ink-2); font-weight: 600; }
   .site-row button.link {
     background: none; border: 0; color: var(--muted); cursor: pointer;
     font: inherit; font-size: 12px; text-decoration: underline; padding: 0;
@@ -746,13 +748,27 @@
         return;
       }
       $('add-site-input').value = '';
-      $('add-site-snippet').textContent = res.body.snippet;
+      $('add-site-snippet').textContent = snippetFor(res.body.site);
       $('add-site-snippet').hidden = false;
       notice('add-site-notice', 'Added. Paste the snippet below into that site.', true);
       loadSites(res.body.site);
       loadPlan();
     });
   });
+
+  // The tag a site pastes into its <head>. Built here rather than by the API
+  // because the script's address has to be absolute: the snippet goes on
+  // someone else's domain, where "/cairn.js" would load their own (missing)
+  // file. The account API never sees the public hostname (CloudFront keeps
+  // Host from the origin so API Gateway can route), but this page is served
+  // from the same distribution as cairn.js, so its own origin is exactly
+  // the right one.
+  function snippetFor(site) {
+    // The closing tag is written with an escaped slash on purpose: this code
+    // sits inside an inline script element, and the plain closing tag, even in
+    // a string or a comment, would end that element right here.
+    return '<script defer src="' + location.origin + '/cairn.js" data-site="' + site + '"><\/script>';
+  }
 
   function renderSites() {
     var list = $('sites-list');
@@ -783,16 +799,29 @@
       var share = document.createElement('input');
       share.type = 'checkbox';
       share.checked = !!entry.public;
+      // The label alone reads the same whether or not the box is ticked, so
+      // say what is true right now. Updated only once the API agrees.
+      var status = document.createElement('span');
+      status.className = 'visibility';
+      function showVisibility() {
+        status.textContent = entry.public ? 'Anyone can view' : 'Only you';
+        status.classList.toggle('is-public', !!entry.public);
+      }
+      showVisibility();
       share.addEventListener('change', function () {
+        share.disabled = true;
         api('PATCH', '/api/sites/' + encodeURIComponent(entry.site), { public: share.checked })
           .then(function (res) {
-            if (!res.ok) { share.checked = !share.checked; }
-            else { entry.public = share.checked; }
+            if (res.ok) { entry.public = share.checked; }
+            else { share.checked = !!entry.public; }
+            share.disabled = false;
+            showVisibility();
           });
       });
       shareLabel.appendChild(share);
       shareLabel.appendChild(document.createTextNode('Public'));
       row.appendChild(shareLabel);
+      row.appendChild(status);
 
       var remove = document.createElement('button');
       remove.type = 'button';

@@ -440,7 +440,6 @@ async fn claim_site(app: &App, request: &Request) -> Result<Response<Body>, Erro
         &serde_json::json!({
             "site": site.as_str(),
             "public": false,
-            "snippet": snippet(site.as_str()),
         }),
     ))
 }
@@ -939,10 +938,6 @@ async fn owns(app: &App, email: &Email, site: &SiteId) -> Result<bool, Error> {
         .is_some_and(|owner| owner == email.as_str()))
 }
 
-fn snippet(site: &str) -> String {
-    format!(r#"<script defer src="/cairn.js" data-site="{site}"></script>"#)
-}
-
 /* ----------------------------------------------------------------------- */
 /* plumbing                                                                 */
 /* ----------------------------------------------------------------------- */
@@ -1030,10 +1025,5 @@ mod tests {
     fn an_email_survives_a_query_string() {
         assert_eq!(percent_encode("a.b+c@example.com"), "a.b%2Bc%40example.com");
         assert_eq!(percent_encode("plain"), "plain");
-    }
-
-    #[test]
-    fn the_snippet_names_the_site() {
-        assert!(snippet("fitmit").contains(r#"data-site="fitmit""#));
     }
 }
