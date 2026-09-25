@@ -419,6 +419,8 @@
   .site-row .name { font-weight: 600; font-size: 14px; }
   .site-row .spacer { flex: 1 1 auto; }
   .site-row label { font-size: 12px; color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; }
+  .site-row .visibility { font-size: 12px; color: var(--muted); min-width: 7.5em; }
+  .site-row .visibility.is-public { color: var(--ink-2); font-weight: 600; }
   .site-row button.link {
     background: none; border: 0; color: var(--muted); cursor: pointer;
     font: inherit; font-size: 12px; text-decoration: underline; padding: 0;
@@ -446,6 +448,38 @@
     cursor: pointer;
   }
   .add-site button:hover { border-color: var(--ink-2); }
+  .plan {
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    display: grid;
+    gap: 10px;
+  }
+  .plan-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .plan-name { font-weight: 600; font-size: 14px; text-transform: capitalize; }
+  .plan-limits { color: var(--muted); font-size: 12px; }
+  .meter { display: grid; gap: 5px; }
+  .meter-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-2); }
+  .meter-track { height: 6px; background: var(--plane); border-radius: 3px; overflow: hidden; }
+  .meter-fill { height: 100%; background: var(--visitors); border-radius: 3px; transition: width .3s; }
+  .meter.over .meter-fill { background: var(--views); }
+  .meter.over .meter-label { color: var(--views); }
+  .upgrades { display: flex; gap: 8px; flex-wrap: wrap; }
+  .upgrades button {
+    background: var(--raised);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    color: var(--ink);
+    font: inherit;
+    font-size: 13px;
+    padding: 8px 13px;
+    cursor: pointer;
+  }
+  .upgrades button:hover { border-color: var(--visitors); }
+  .upgrades button:disabled { opacity: .5; cursor: progress; }
+  @media (prefers-reduced-motion: reduce) { .meter-fill { transition: none; } }
+
   code.snippet {
     display: block;
     background: var(--plane);
@@ -502,6 +536,7 @@
         <button data-days="1">24h</button>
         <button data-days="7" aria-pressed="true">7d</button>
         <button data-days="30">30d</button>
+        <button data-days="90" id="range-90" hidden>90d</button>
       </div>
 
       <div class="whoami">
@@ -516,6 +551,19 @@
   <div id="sites-card" hidden>
     <h2>Your sites</h2>
     <p class="sub">Each site is private until you share it. Paste the snippet into the page's <code>&lt;head&gt;</code>.</p>
+    <div class="plan" id="plan" hidden>
+      <div class="plan-head">
+        <span class="plan-name" id="plan-name"></span>
+        <span class="plan-limits" id="plan-limits"></span>
+      </div>
+      <div class="meter" id="meter-events">
+        <div class="meter-label"><span>Events this month</span><span id="meter-events-text"></span></div>
+        <div class="meter-track"><div class="meter-fill" id="meter-events-fill"></div></div>
+      </div>
+      <div class="upgrades" id="upgrades" hidden></div>
+      <a id="manage-billing" href="#" target="_blank" rel="noopener" class="plan-limits" hidden>Manage billing — cancel or update your card</a>
+      <div id="plan-notice" class="notice bad" hidden></div>
+    </div>
     <div id="sites-list"></div>
     <form class="add-site" id="add-site-form">
       <input id="add-site-input" placeholder="example.com" aria-label="New site id" required>
@@ -700,12 +748,27 @@
         return;
       }
       $('add-site-input').value = '';
-      $('add-site-snippet').textContent = res.body.snippet;
+      $('add-site-snippet').textContent = snippetFor(res.body.site);
       $('add-site-snippet').hidden = false;
       notice('add-site-notice', 'Added. Paste the snippet below into that site.', true);
       loadSites(res.body.site);
+      loadPlan();
     });
   });
+
+  // The tag a site pastes into its <head>. Built here rather than by the API
+  // because the script's address has to be absolute: the snippet goes on
+  // someone else's domain, where "/cairn.js" would load their own (missing)
+  // file. The account API never sees the public hostname (CloudFront keeps
+  // Host from the origin so API Gateway can route), but this page is served
+  // from the same distribution as cairn.js, so its own origin is exactly
+  // the right one.
+  function snippetFor(site) {
+    // The closing tag is written with an escaped slash on purpose: this code
+    // sits inside an inline script element, and the plain closing tag, even in
+    // a string or a comment, would end that element right here.
+    return '<script defer src="' + location.origin + '/cairn.js" data-site="' + site + '"><\/script>';
+  }
 
   function renderSites() {
     var list = $('sites-list');
@@ -736,16 +799,29 @@
       var share = document.createElement('input');
       share.type = 'checkbox';
       share.checked = !!entry.public;
+      // The label alone reads the same whether or not the box is ticked, so
+      // say what is true right now. Updated only once the API agrees.
+      var status = document.createElement('span');
+      status.className = 'visibility';
+      function showVisibility() {
+        status.textContent = entry.public ? 'Anyone can view' : 'Only you';
+        status.classList.toggle('is-public', !!entry.public);
+      }
+      showVisibility();
       share.addEventListener('change', function () {
+        share.disabled = true;
         api('PATCH', '/api/sites/' + encodeURIComponent(entry.site), { public: share.checked })
           .then(function (res) {
-            if (!res.ok) { share.checked = !share.checked; }
-            else { entry.public = share.checked; }
+            if (res.ok) { entry.public = share.checked; }
+            else { share.checked = !!entry.public; }
+            share.disabled = false;
+            showVisibility();
           });
       });
       shareLabel.appendChild(share);
       shareLabel.appendChild(document.createTextNode('Public'));
       row.appendChild(shareLabel);
+      row.appendChild(status);
 
       var remove = document.createElement('button');
       remove.type = 'button';
@@ -753,7 +829,7 @@
       remove.textContent = 'Remove';
       remove.addEventListener('click', function () {
         if (!confirm('Stop tracking ' + entry.site + '? The site id becomes free for anyone to claim.')) return;
-        api('DELETE', '/api/sites/' + encodeURIComponent(entry.site)).then(function () { loadSites(); });
+        api('DELETE', '/api/sites/' + encodeURIComponent(entry.site)).then(function () { loadSites(); loadPlan(); });
       });
       row.appendChild(remove);
 
@@ -801,6 +877,77 @@
     $('sign-in').hidden = true;
     $('gate-cancel-row').hidden = true;
     loadSites();
+    loadPlan();
+
+    // Stripe's Payment Link sends people back here after paying. The webhook
+    // that changes the plan can land a few seconds after they do, so say that
+    // rather than showing the old plan as though nothing happened.
+    if (params.get('upgraded')) {
+      $('sites-card').hidden = false;
+      notice('plan-notice', 'Payment received. Your plan updates as soon as Stripe confirms it, usually within a minute.', true);
+      setTimeout(loadPlan, 8000);
+    }
+  }
+
+  function loadPlan() {
+    return api('GET', '/api/billing/summary').then(function (res) {
+      if (!res.ok) return;
+      renderPlan(res.body);
+    });
+  }
+
+  function renderPlan(summary) {
+    var plan = summary.plan, usage = summary.usage;
+    $('plan').hidden = false;
+    $('plan-name').textContent = plan.name + ' plan';
+    $('plan-limits').textContent =
+      usage.site_count + ' of ' + plan.max_sites + ' site' + (plan.max_sites === 1 ? '' : 's') +
+      ' · ' + plan.retention_days + ' days of history';
+
+    var used = usage.events, allowed = plan.monthly_events;
+    $('meter-events-text').textContent = fmt(used) + ' of ' + fmt(allowed);
+    $('meter-events-fill').style.width = Math.min(100, (used / allowed) * 100).toFixed(1) + '%';
+    $('meter-events').classList.toggle('over', usage.over_events);
+
+    // Over the allowance is reported, not enforced: nothing stops collecting.
+    if (usage.over_events) {
+      notice('plan-notice', 'Over this month\'s allowance. Tracking continues; upgrading keeps it that way.');
+    } else if (!params.get('upgraded')) {
+      notice('plan-notice', '');
+    }
+
+    // The 90-day button only exists for plans that can serve it.
+    $('range-90').hidden = plan.retention_days < 90;
+
+    var portal = $('manage-billing');
+    portal.hidden = !summary.portal_url;
+    if (summary.portal_url) portal.href = summary.portal_url;
+
+    var box = $('upgrades');
+    box.textContent = '';
+    var better = (summary.plans || []).filter(function (p) {
+      return p.monthly_events > plan.monthly_events;
+    });
+    box.hidden = !summary.billing_available || !better.length;
+    better.forEach(function (p) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      var title = p.name.charAt(0).toUpperCase() + p.name.slice(1);
+      b.textContent = 'Upgrade to ' + title + ' · $' + p.price + '/mo · ' +
+        p.max_sites + ' sites, ' + fmt(p.monthly_events) + ' events';
+      b.addEventListener('click', function () {
+        b.disabled = true;
+        api('POST', '/api/billing/checkout', { plan: p.name }).then(function (res) {
+          if (res.ok && res.body.url) {
+            location.href = res.body.url;
+          } else {
+            b.disabled = false;
+            notice('plan-notice', res.body.error || 'Could not start checkout.');
+          }
+        });
+      });
+      box.appendChild(b);
+    });
   }
 
   /// A read-only view of one public site, for visitors who are not signed in.

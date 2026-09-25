@@ -80,7 +80,7 @@ POST   /api/auth/login       {email, password}
 POST   /api/auth/logout
 GET    /api/auth/me
 GET    /api/sites                                sites you own
-POST   /api/sites            {site}              claim one, returns the snippet
+POST   /api/sites            {site}              claim one
 PATCH  /api/sites/{site}     {public: bool}       share or unshare
 DELETE /api/sites/{site}
 ```
@@ -132,6 +132,101 @@ forwarded to the query handler and included in its cache key, and `/api/auth/*`
 and `/api/sites*` get their own behaviours because `/api/*` allows only GET,
 HEAD and OPTIONS. Without those, authorization compiles and then denies
 everything, and signup returns 403 from the CDN.
+
+## Plans and billing
+
+| | Free | Starter | Pro |
+|---|---|---|---|
+| Price | $0 | $5/month | $12/month |
+| Sites | 1 | 3 | 10 |
+| Events per month | 5,000 | 100,000 | 500,000 |
+| History shown | 30 days | 90 days | 90 days |
+
+The numbers live in `cairn-core` (`Plan`), not configuration, so changing
+what a plan includes is a code change that arrives with a test.
+
+**What is enforced, and what is only reported.** The site count is enforced
+when a site is claimed (a 402 names the limit). History is enforced by the
+query, which clamps `?days=` to the owner's plan for everyone, including
+strangers reading a public site. The event allowance is reported, not
+enforced: the dashboard shows the month's usage against it and says when it
+is exceeded, but collection never stops. Cutting off a paying customer's
+dashboard mid-month is a decision to make with real customers, not a default
+to ship.
+
+**Why history stops at 90 days.** The query reads one day per DynamoDB call,
+so a year would be 365 reads per dashboard load. Longer history needs a
+monthly rollup first, and should not be sold before one exists.
+
+**Usage is recomputed, like everything else.** The rollup writes one
+`USAGE#{site}` row per day, overwriting it on every run, and a month's usage
+is the sum of its days. A counter would be wrong the first time a day was
+re-run.
+
+### Setting up Stripe
+
+Billing is off until configured: every account is free and the upgrade routes
+answer 503. Nothing else depends on it. No Stripe API key is involved at any
+point — Stripe hosts every card form, and nothing here calls Stripe.
+
+1. **Two recurring prices.** In Stripe, create a Starter product at $5/month
+   and a Pro product at $12/month.
+2. **A Payment Link for each.** Under *After payment*, choose to redirect to
+   `https://<your-dashboard>/?upgraded=1`, which tells the returning customer
+   their plan is updating. Note each link's URL and its id (`plink_…`).
+3. **A webhook endpoint** at `https://<distribution>/api/billing/webhook`,
+   listening for `checkout.session.completed` and
+   `customer.subscription.deleted`. Copy its signing secret (`whsec_…`).
+4. **The Customer Portal** (Settings → Billing → Customer portal): enable it,
+   allow cancellation and card updates, and **turn plan switching off** — a
+   switch there changes the subscription without telling Cairn. Copy the
+   portal's login link.
+5. **Set the Terraform variables** `stripe_webhook_secret`,
+   `stripe_starter_url`, `stripe_starter_link_id`, `stripe_pro_url`,
+   `stripe_pro_link_id` and `stripe_portal_url`, then apply.
+
+Test it end to end in Stripe's test mode first, with test-mode links and a
+test-mode webhook secret, then swap in the live values.
+
+### How a payment finds its account
+
+The upgrade button asks `POST /api/billing/checkout` for a Payment Link URL
+carrying `client_reference_id`, which Stripe echoes back in the webhook.
+
+- **The reference is random and stored**, not derived from the email. Payment
+  Links only accept `[A-Za-z0-9_-]`, so the email itself cannot be passed,
+  and a hash of it would be guessable: anyone who knew an address could
+  attach their own subscription to it and cancel it later to downgrade the
+  real owner.
+- **The plan comes from the link Stripe charged** — `payment_link` in the
+  webhook — never from the URL the customer followed, which they can edit.
+- **Only the current subscription can downgrade.** A cancellation downgrades
+  the account only if it names the subscription the account is on, so an old
+  subscription ending cannot drop someone off a newer plan.
+- **Signatures are checked and dated.** HMAC-SHA256 over the raw body,
+  constant-time comparison, any `v1` accepted during a secret roll, and
+  nothing older than five minutes.
+- **Unactionable events still get a 200.** A non-2xx makes Stripe retry for
+  three days, and an event naming an unknown account will never start
+  succeeding. Those are logged as errors instead.
+
+### Known limits
+
+- **One paid subscription per account.** A paying account is not offered
+  another Payment Link, and the checkout route refuses with 409 if called
+  directly, because a second link starts a second subscription beside the
+  first. Changing plan is: cancel in the portal, then buy the other one.
+- **Delayed payment methods** (bank debits) complete checkout as `unpaid` and
+  are ignored. Handling `checkout.session.async_payment_succeeded` would add
+  them.
+- **A downgrade keeps existing sites.** An account over its site limit keeps
+  every site it has and cannot add another until it is back under.
+- **Failed renewals** rely on Stripe's retry settings: when Stripe gives up and
+  deletes the subscription, the account returns to free.
+- **The webhook secret lives in Terraform state** and the Lambda's
+  configuration, marked sensitive. It can prove a request came from Stripe; it
+  cannot move money. Move it to SSM beside the visitor salt if that trade
+  stops being acceptable.
 
 ## Privacy model
 

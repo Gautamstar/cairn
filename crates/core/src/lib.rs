@@ -13,6 +13,7 @@
 
 pub mod account;
 pub mod aggregate;
+pub mod billing;
 pub mod bots;
 pub mod event;
 pub mod normalize;
@@ -20,7 +21,7 @@ pub mod origin;
 pub mod privacy;
 pub mod ua;
 
-pub use account::{AccountError, Email, SessionToken, SiteId, Visibility};
+pub use account::{AccountError, Email, Plan, SessionToken, SiteId, Visibility};
 pub use aggregate::{Counts, Dimension};
 pub use event::{EventContext, EventError, RawEvent, StoredEvent};
 pub use origin::{ORIGIN_HEADER, secret_matches};

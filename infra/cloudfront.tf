@@ -67,13 +67,15 @@ resource "aws_cloudfront_origin_request_policy" "ingest" {
 # runs. Only what the account handler reads is sent.
 resource "aws_cloudfront_origin_request_policy" "account" {
   name    = "cairn-account"
-  comment = "Content type and the session cookie"
+  comment = "Content type, Stripe's signature, and the session cookie"
 
   headers_config {
     header_behavior = "whitelist"
 
+    # stripe-signature is how the billing webhook proves a request came from
+    # Stripe. Leave it out of this list and every webhook fails verification.
     headers {
-      items = ["content-type"]
+      items = ["content-type", "stripe-signature"]
     }
   }
 
@@ -231,6 +233,25 @@ resource "aws_cloudfront_distribution" "cairn" {
     cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
     origin_request_policy_id = aws_cloudfront_origin_request_policy.account.id
     compress                 = true
+  }
+
+  # Stripe's webhook is a POST and must arrive byte-for-byte, with its
+  # Stripe-Signature header, or the signature cannot verify. The account
+  # origin-request policy whitelists that header; caching is off.
+  ordered_cache_behavior {
+    path_pattern           = "/api/billing/*"
+    target_origin_id       = "api"
+    viewer_protocol_policy = "https-only"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods         = ["GET", "HEAD"]
+
+    cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
+    origin_request_policy_id = aws_cloudfront_origin_request_policy.account.id
+
+    # Compression would not change the bytes the handler sees, but nothing
+    # here is large enough to be worth it, and the webhook's body is the one
+    # place on this API where exact bytes matter.
+    compress = false
   }
 
   ordered_cache_behavior {
